@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_database_mgr.dir/tests/test_database_mgr.cpp.o -o test_database_mgr  ../lib/libsyncbar_core.a libsqlite3.a -framework CoreAudio -framework AudioToolbox

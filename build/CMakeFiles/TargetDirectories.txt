@@ -1,0 +1,10 @@
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/CMakeFiles/edit_cache.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/CMakeFiles/rebuild_cache.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/CMakeFiles/sqlite3.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/CMakeFiles/syncbar_core.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/CMakeFiles/test_database_mgr.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/CMakeFiles/test_audio_logic.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/CMakeFiles/test_audio_engine.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/CMakeFiles/test_bridge_api.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/CMakeFiles/edit_cache.dir
+/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/CMakeFiles/rebuild_cache.dir

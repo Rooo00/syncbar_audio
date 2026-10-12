@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_audio_engine.dir/tests/test_audio_engine.cpp.o -o test_audio_engine  ../lib/libsyncbar_core.a libsqlite3.a -framework CoreFoundation -framework CoreAudio -framework AudioToolbox
