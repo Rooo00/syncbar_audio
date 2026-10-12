@@ -108,3 +108,40 @@ Iteración 1: Core C++ + Bridge + UI macOS. Iteración 2: UI Windows.
 - ✅ Feedback temprano de usuarios macOS
 - ✅ El Core ya estará validado cuando se implemente Windows
 - ⚠️ Usuarios Windows deben esperar la segunda iteración
+
+---
+
+## ADR-07: Estrategia de ruteo de audio para grupos virtuales
+
+**Estado:** Propuesto  
+**Fecha:** Octubre 2026
+
+**Contexto:**  
+La implementación actual de grupos solo controla volumen: `setGroupVolume` calcula `master × relativo` y lo escribe en el hardware de cada miembro (`kAudioHardwareServiceDeviceProperty_VirtualMainVolume`). No existe ruteo de audio: el sistema sigue enviando el sonido a una sola salida, por lo que el caso de uso principal ("bocinas + AirPods al mismo tiempo") no se cumple.
+
+Además, `VirtualMainVolume` no está disponible en dispositivos sin volumen por hardware (HDMI, DisplayPort, algunos DACs USB) ni en dispositivos agregados, y hoy los errores de `getVolume` se ignoran.
+
+Opciones evaluadas (macOS):
+
+| Opción | Pros | Contras |
+|---|---|---|
+| A. Aggregate Device "stacked" (Multi-Output) vía `AudioHardwareCreateAggregateDevice` | API pública, sin drivers; CoreAudio resuelve remuestreo y drift; poco código | Sin compensación de latencia por dispositivo; el agregado no tiene volumen propio |
+| B. Process Tap (macOS 14.2+) + mezclador propio | Retraso configurable por dispositivo (alinea Bluetooth con cableado) | Sube el mínimo a macOS 14.2; requiere permiso de captura; código de tiempo real complejo |
+| C. AudioServerPlugIn (driver virtual, tipo BlackHole) | Control total en macOS 13+ | Instalación con admin, notarización, reinicio de `coreaudiod`; contrario al objetivo de simplicidad |
+
+En Windows no existe equivalente a los Aggregate Devices; la Iteración 2 requerirá WASAPI loopback + render a N endpoints (equivalente a la opción B).
+
+**Decisión:**  
+1. **Fase 1:** opción A. Al activar un grupo se crea un Aggregate Device privado y apilado (`kAudioAggregateDeviceIsPrivateKey=1`, `kAudioAggregateDeviceIsStackedKey=1`) con drift compensation en los sub-dispositivos que no son reloj maestro. El reloj maestro será preferentemente una salida cableada. El agregado se establece como salida por defecto y, al desactivar el grupo, se restaura la salida previa (también al cerrar la app o tras un crash, ya que el agregado privado desaparece con el proceso).
+2. El control de volumen/mute por miembro existente se mantiene: es justamente lo que el agregado no ofrece.
+3. El ruteo se encapsula tras una interfaz `AudioRouter` en el core, separada del estado, con implementación por plataforma (CoreAudio aggregate ahora; WASAPI loopback en Iteración 2) y un mock para tests.
+4. **Fase 2 (condicional):** si el desfase con dispositivos Bluetooth resulta molesto en pruebas con usuarios, migrar a la opción B con retraso ajustable por dispositivo.
+5. Corregir el manejo de volumen: verificar `OSStatus`, usar `kAudioDevicePropertyVolumeScalar` por canal como respaldo y exponer en la UI los dispositivos sin control de volumen.
+
+**Consecuencias:**
+- ✅ Se cumple el caso de uso de salida simultánea sin drivers ni KEXTs
+- ✅ Reutiliza el modelo de grupos, volúmenes relativos y persistencia existentes
+- ✅ La interfaz `AudioRouter` prepara la implementación de Windows y mejora la testeabilidad
+- ⚠️ Los dispositivos Bluetooth (150–300 ms de latencia) quedarán desfasados respecto a salidas cableadas en la Fase 1
+- ⚠️ El requisito "latencia ≤ 10 ms en grupos virtuales" no es alcanzable con Bluetooth bajo ninguna opción; debe reformularse en el SRS (p. ej. "deriva acotada entre miembros" y "retraso ajustable por dispositivo")
+- ⚠️ La app pasa a modificar la salida por defecto del sistema; debe restaurarla de forma robusta
