@@ -131,6 +131,7 @@ private struct SectionHeader: View {
 
 // ── Previews ──────────────────────────────────────────────────────────────────
 
+#if DEBUG
 #Preview("Con dispositivos") {
     let vm = AudioViewModel.preview
     return PopoverView()
@@ -142,3 +143,4 @@ private struct SectionHeader: View {
     return PopoverView()
         .environmentObject(vm)
 }
+#endif
