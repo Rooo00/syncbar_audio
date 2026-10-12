@@ -101,7 +101,7 @@ ctest --test-dir build --output-on-failure
 
 ```bash
 # Desde la raíz del proyecto — compilar el Core primero
-cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DUNIVERSAL=ON  # la app es universal (arm64 + x86_64)
 cmake --build build
 
 # Luego abrir en Xcode

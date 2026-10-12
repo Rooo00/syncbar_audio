@@ -81,7 +81,7 @@ Un ítem solo se marca ✅ si cumple **todas** las capas que aplican:
   ```
   y la app compila en **Release** (es lo que corre el CI):
   ```bash
-  cmake -S . -B build-rel -DCMAKE_BUILD_TYPE=Release && cmake --build build-rel
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DUNIVERSAL=ON && cmake --build build
   xcodebuild -project macos/SyncBarAudio/SyncBarAudio.xcodeproj -target SyncBarAudio \
     -configuration Release CODE_SIGNING_ALLOWED=NO build
   ```

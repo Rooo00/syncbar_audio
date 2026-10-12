@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 
+# Debe definirse antes de project() para que CMake lo aplique (macOS 13+, igual que la app)
+set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version")
+
 project(SyncBarAudio
     VERSION 1.0.0
     DESCRIPTION "SyncBar Audio — Shared Core Engine"
@@ -33,7 +36,6 @@ if(APPLE)
         set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64")
         message(STATUS "Universal binary: arm64 + x86_64")
     endif()
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum macOS version")
 endif()
 
 if(MSVC)
