@@ -2,7 +2,9 @@
 #include "sqlite3.h"
 
 #include <chrono>
+#include <condition_variable>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <stdexcept>
 #include <cstring>
@@ -55,6 +57,53 @@ struct DatabaseManager::Impl {
     std::mutex                                    pendingMutex;
 
     static constexpr auto kDebounceMs = std::chrono::milliseconds(300);
+
+    // Hilo que escribe los pendientes cuando vence su ventana de debounce,
+    // sin esperar a que llegue otra escritura (US-04).
+    std::thread             flusher;
+    std::condition_variable flushCv;
+    bool                    stopFlusher = false;  // protegido por pendingMutex
+
+    void flusherLoop() {
+        std::unique_lock<std::mutex> lock(pendingMutex);
+        while (!stopFlusher) {
+            if (pendingDevices.empty()) {
+                flushCv.wait(lock);
+                continue;
+            }
+            // Escribir los vencidos y calcular el próximo vencimiento
+            auto now = Clock::now();
+            TimePoint next = TimePoint::max();
+            for (auto it = pendingDevices.begin(); it != pendingDevices.end(); ) {
+                auto due = it->second.timestamp + kDebounceMs;
+                if (due <= now) {
+                    writeDevice(it->second.record);
+                    it = pendingDevices.erase(it);
+                } else {
+                    if (due < next) next = due;
+                    ++it;
+                }
+            }
+            if (next != TimePoint::max()) flushCv.wait_until(lock, next);
+        }
+    }
+
+    void startFlusher() {
+        {
+            std::lock_guard<std::mutex> lock(pendingMutex);
+            stopFlusher = false;
+        }
+        flusher = std::thread([this] { flusherLoop(); });
+    }
+
+    void stopFlusherThread() {
+        {
+            std::lock_guard<std::mutex> lock(pendingMutex);
+            stopFlusher = true;
+        }
+        flushCv.notify_all();
+        if (flusher.joinable()) flusher.join();
+    }
 
     // Escribe el DeviceRecord directamente en SQLite (sin debounce)
     bool writeDevice(const DeviceRecord& d) {
@@ -176,11 +225,15 @@ bool DatabaseManager::open(const std::string& dbPath) {
 
     )SQL";
 
-    return exec(impl_->db, schema);
+    if (!exec(impl_->db, schema)) return false;
+
+    impl_->startFlusher();
+    return true;
 }
 
 void DatabaseManager::close() {
     if (!impl_->db) return;
+    impl_->stopFlusherThread();
     flushPending();
     sqlite3_close(impl_->db);
     impl_->db = nullptr;
@@ -278,17 +331,7 @@ bool DatabaseManager::upsertDevice(const DeviceRecord& device, bool immediate) {
         impl_->pendingDevices[device.device_uid] = { device, now };
     }
 
-    // Revisar si algún pending ya superó la ventana de debounce
-    for (auto pit = impl_->pendingDevices.begin(); pit != impl_->pendingDevices.end(); ) {
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - pit->second.timestamp);
-        if (elapsed >= Impl::kDebounceMs) {
-            impl_->writeDevice(pit->second.record);
-            pit = impl_->pendingDevices.erase(pit);
-        } else {
-            ++pit;
-        }
-    }
+    impl_->flushCv.notify_one();
     return true;
 }
 

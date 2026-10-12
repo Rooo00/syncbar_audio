@@ -266,6 +266,29 @@ void test_debounce() {
     db.close();
 }
 
+void test_debounce_timer() {
+    printf("\n[T8b] Debounce: pending write reaches DB without flush or further writes\n");
+    DatabaseManager db;
+    db.open(":memory:");
+
+    DeviceRecord d;
+    d.device_uid = "UID-TIMER"; d.saved_volume = 1.0f; d.is_muted = false; d.is_active = true;
+    db.upsertDevice(d, /*immediate=*/true);
+
+    // Una sola escritura con debounce (soltar el slider) y nada más
+    d.saved_volume = 0.25f;
+    db.upsertDevice(d, /*immediate=*/false);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(450));
+
+    std::vector<DeviceRecord> devices;
+    db.loadDevices(devices);
+    CHECK(!devices.empty() && devices[0].saved_volume == 0.25f,
+          "DB updated by debounce timer without flushPending()");
+
+    db.close();
+}
+
 void test_persist_and_reload() {
     printf("\n[T9] Persist and reload state\n");
     const std::string path = "/tmp/syncbar_test.db";
@@ -333,6 +356,7 @@ int main() {
     test_group_active_trigger();
     test_cascade_delete();
     test_debounce();
+    test_debounce_timer();
     test_persist_and_reload();
 
     printf("\n══════════════════════════════════\n");
