@@ -10,6 +10,7 @@ struct AudioDeviceVM: Identifiable, Equatable {
     var volume: Float
     var isMuted: Bool
     var isActive: Bool
+    var hasVolumeControl: Bool = true   // false = HDMI/DisplayPort u otro sin volumen
 }
 
 struct AudioGroupVM: Identifiable, Equatable {
@@ -101,7 +102,8 @@ final class AudioViewModel: ObservableObject {
     // ── Handlers de hardware ──────────────────────────────────────────────────
 
     func handleDeviceConnected(uid: String) {
-        refreshDevices()
+        // Una reconexión también reactiva membresías de grupo (US-05)
+        refreshAll()
     }
 
     func handleDeviceDisconnected(uid: String) {
@@ -135,7 +137,8 @@ final class AudioViewModel: ObservableObject {
                 nativeName:  cStr(d.native_name),
                 volume:      d.volume,
                 isMuted:     d.is_muted,
-                isActive:    d.is_active
+                isActive:    d.is_active,
+                hasVolumeControl: d.has_volume_control
             )
         }
     }

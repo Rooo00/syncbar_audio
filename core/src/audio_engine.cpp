@@ -1,7 +1,10 @@
 #include "audio_engine.h"
 #include "audio_logic.h"
 
+#include <functional>
+#include <string>
 #include <unordered_map>
+#include <vector>
 #include <mutex>
 #include <algorithm>
 #include <stdexcept>
@@ -30,6 +33,7 @@ struct DeviceState {
     float       volume      = 1.0f;
     bool        is_muted    = false;
     bool        is_active   = true;
+    bool        has_volume_control = true;  // false = el hardware no expone volumen
 
 #ifdef __APPLE__
     AudioDeviceID core_audio_id = kAudioDeviceUnknown;
@@ -143,31 +147,88 @@ static std::vector<AudioDeviceID> enumerateOutputDevices() {
     return devices;
 }
 
-// Obtiene el volumen virtual maestro de un dispositivo [0.0, 1.0]
-static float getVolume(AudioDeviceID deviceId) {
-    Float32 vol = 1.0f;
+// ¿El dispositivo expone esta propiedad de salida como modificable?
+static bool isOutputPropertySettable(AudioDeviceID deviceId,
+                                     AudioObjectPropertySelector selector,
+                                     AudioObjectPropertyElement element) {
     AudioObjectPropertyAddress addr {
-        kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
-        kAudioDevicePropertyScopeOutput,
-        kAudioObjectPropertyElementMain
+        selector, kAudioDevicePropertyScopeOutput, element
     };
-    UInt32 size = sizeof(vol);
-    AudioObjectGetPropertyData(deviceId, &addr, 0, nullptr, &size, &vol);
-    return AudioLogic::clampVolume(static_cast<float>(vol));
+    if (!AudioObjectHasProperty(deviceId, &addr)) return false;
+    Boolean settable = false;
+    return AudioObjectIsPropertySettable(deviceId, &addr, &settable) == noErr
+        && settable;
 }
 
-// Establece el volumen virtual maestro de un dispositivo
-static bool setVolume(AudioDeviceID deviceId, float linearVolume) {
-    Float32 vol = AudioLogic::clampVolume(linearVolume);
+// Elementos (main + canales 1 y 2) con kAudioDevicePropertyVolumeScalar modificable.
+// Respaldo para dispositivos sin VirtualMainVolume.
+static std::vector<AudioObjectPropertyElement> scalarVolumeElements(AudioDeviceID deviceId) {
+    std::vector<AudioObjectPropertyElement> elements;
+    const AudioObjectPropertyElement candidates[] = { kAudioObjectPropertyElementMain, 1, 2 };
+    for (auto e : candidates) {
+        if (isOutputPropertySettable(deviceId, kAudioDevicePropertyVolumeScalar, e)) {
+            elements.push_back(e);
+        }
+    }
+    return elements;
+}
+
+// ¿Se puede controlar el volumen de este dispositivo? (HDMI/DisplayPort suelen no permitirlo)
+static bool hasVolumeControl(AudioDeviceID deviceId) {
+    return isOutputPropertySettable(deviceId,
+               kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+               kAudioObjectPropertyElementMain)
+        || !scalarVolumeElements(deviceId).empty();
+}
+
+// Lee el volumen [0.0, 1.0]. Devuelve false si el dispositivo no lo expone.
+static bool getVolume(AudioDeviceID deviceId, float& outVolume) {
+    Float32 vol = 0.0f;
+    UInt32 size = sizeof(vol);
     AudioObjectPropertyAddress addr {
         kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
         kAudioDevicePropertyScopeOutput,
         kAudioObjectPropertyElementMain
     };
-    UInt32 size = sizeof(vol);
-    OSStatus err = AudioObjectSetPropertyData(deviceId, &addr, 0, nullptr,
-                                              size, &vol);
-    return err == noErr;
+    if (AudioObjectGetPropertyData(deviceId, &addr, 0, nullptr, &size, &vol) == noErr) {
+        outVolume = AudioLogic::clampVolume(static_cast<float>(vol));
+        return true;
+    }
+    addr.mSelector = kAudioDevicePropertyVolumeScalar;
+    for (auto e : scalarVolumeElements(deviceId)) {
+        addr.mElement = e;
+        size = sizeof(vol);
+        if (AudioObjectGetPropertyData(deviceId, &addr, 0, nullptr, &size, &vol) == noErr) {
+            outVolume = AudioLogic::clampVolume(static_cast<float>(vol));
+            return true;
+        }
+    }
+    return false;
+}
+
+// Aplica el volumen. Intenta VirtualMainVolume y, si falla, VolumeScalar por canal.
+// Devuelve false si el hardware rechazó el cambio en todas las vías.
+static bool setVolume(AudioDeviceID deviceId, float linearVolume) {
+    Float32 vol = AudioLogic::clampVolume(linearVolume);
+    const UInt32 kVolSize = sizeof(vol);
+    AudioObjectPropertyAddress addr {
+        kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+        kAudioDevicePropertyScopeOutput,
+        kAudioObjectPropertyElementMain
+    };
+    if (isOutputPropertySettable(deviceId, addr.mSelector, addr.mElement) &&
+        AudioObjectSetPropertyData(deviceId, &addr, 0, nullptr, kVolSize, &vol) == noErr) {
+        return true;
+    }
+    bool applied = false;
+    addr.mSelector = kAudioDevicePropertyVolumeScalar;
+    for (auto e : scalarVolumeElements(deviceId)) {
+        addr.mElement = e;
+        if (AudioObjectSetPropertyData(deviceId, &addr, 0, nullptr, kVolSize, &vol) == noErr) {
+            applied = true;
+        }
+    }
+    return applied;
 }
 
 // Obtiene el estado de mute de un dispositivo
@@ -248,16 +309,19 @@ struct AudioEngine::Impl {
         return d.custom_name.empty() ? d.native_name : d.custom_name;
     }
 
-    // Aplica volumen al HAL para un dispositivo específico
-    bool halSetVolume(const DeviceState& d, float volume) {
+    // Resultado de aplicar un cambio al hardware
+    enum class HalStatus { Applied, NoHardware, Rejected };
+
+    // Aplica volumen al HAL para un dispositivo específico.
+    // NoHardware = desconectado o plataforma sin HAL (el valor solo se guarda).
+    HalStatus halSetVolume(const DeviceState& d, float volume) {
 #ifdef __APPLE__
-        if (d.core_audio_id == kAudioDeviceUnknown) return false;
-        return CoreAudioHAL::setVolume(d.core_audio_id, volume);
-#elif defined(_WIN32)
-        (void)d; (void)volume;
-        return false; // Iteración 2
+        if (d.core_audio_id == kAudioDeviceUnknown) return HalStatus::NoHardware;
+        return CoreAudioHAL::setVolume(d.core_audio_id, volume)
+            ? HalStatus::Applied : HalStatus::Rejected;
 #else
-        return false;
+        (void)d; (void)volume;
+        return HalStatus::NoHardware; // WASAPI: Iteración 2
 #endif
     }
 
@@ -272,49 +336,6 @@ struct AudioEngine::Impl {
 #else
         return false;
 #endif
-    }
-
-    // Maneja la conexión de un nuevo dispositivo (llamado desde callback HAL)
-    void handleDeviceConnected(const std::string& uid) {
-        std::lock_guard<std::mutex> lock(stateMutex);
-
-        auto it = devices.find(uid);
-        if (it != devices.end()) {
-            // Dispositivo conocido que se reconecta
-            it->second.is_active = true;
-            // Reactivar membresías
-            for (auto& [gid, g] : groups) {
-                for (auto& m : g.members) {
-                    if (m.device_uid == uid) {
-                        m.is_active = true;
-                    }
-                }
-                recalcGroupActive(g);
-            }
-            if (db) db->setDeviceActive(uid, true);
-        }
-        // Si es completamente nuevo, se añade en el siguiente ciclo de enumeración
-
-        if (onConnect) onConnect(uid);
-    }
-
-    // Maneja la desconexión de un dispositivo (llamado desde callback HAL)
-    void handleDeviceDisconnected(const std::string& uid) {
-        std::lock_guard<std::mutex> lock(stateMutex);
-
-        auto it = devices.find(uid);
-        if (it != devices.end()) {
-            it->second.is_active = false;
-            for (auto& [gid, g] : groups) {
-                for (auto& m : g.members) {
-                    if (m.device_uid == uid) m.is_active = false;
-                }
-                recalcGroupActive(g);
-            }
-            if (db) db->setDeviceActive(uid, false);
-        }
-
-        if (onDisconnect) onDisconnect(uid);
     }
 };
 
@@ -344,45 +365,65 @@ static OSStatus hotplugListenerProc(
         if (!uid.empty()) currentMap[uid] = devId;
     }
 
-    std::lock_guard<std::mutex> lock(impl->stateMutex);
+    // Cambios detectados; los callbacks se invocan después de soltar el lock
+    // para que la UI nunca corra código con stateMutex tomado.
+    std::vector<std::string> connected;
+    std::vector<std::string> disconnected;
+    std::function<void(const std::string&)> onConnect;
+    std::function<void(const std::string&)> onDisconnect;
 
-    // Detectar dispositivos nuevos (conectados)
-    for (auto& [uid, devId] : currentMap) {
-        auto it = impl->devices.find(uid);
-        if (it == impl->devices.end()) {
-            // Dispositivo completamente nuevo
-            DeviceState ds;
-            ds.uid            = uid;
-            ds.native_name    = CoreAudioHAL::getName(devId);
-            ds.volume         = CoreAudioHAL::getVolume(devId);
-            ds.is_muted       = CoreAudioHAL::getMute(devId);
-            ds.is_active      = true;
-            ds.core_audio_id  = devId;
-            impl->devices[uid] = ds;
+    {
+        std::lock_guard<std::mutex> lock(impl->stateMutex);
 
-            // Persistir el nuevo dispositivo
-            if (impl->db) {
-                DeviceRecord rec;
-                rec.device_uid   = uid;
-                rec.saved_volume = ds.volume;
-                rec.is_muted     = ds.is_muted;
-                rec.is_active    = true;
-                impl->db->upsertDevice(rec, /*immediate=*/true);
+        // Dispositivos nuevos o reconectados
+        for (auto& [uid, devId] : currentMap) {
+            auto it = impl->devices.find(uid);
+            if (it == impl->devices.end()) {
+                // Dispositivo completamente nuevo
+                DeviceState ds;
+                ds.uid            = uid;
+                ds.native_name    = CoreAudioHAL::getName(devId);
+                ds.has_volume_control = CoreAudioHAL::hasVolumeControl(devId);
+                CoreAudioHAL::getVolume(devId, ds.volume);
+                ds.is_muted       = CoreAudioHAL::getMute(devId);
+                ds.is_active      = true;
+                ds.core_audio_id  = devId;
+                impl->devices[uid] = ds;
+
+                // Persistir el nuevo dispositivo
+                if (impl->db) {
+                    DeviceRecord rec;
+                    rec.device_uid   = uid;
+                    rec.saved_volume = ds.volume;
+                    rec.is_muted     = ds.is_muted;
+                    rec.is_active    = true;
+                    impl->db->upsertDevice(rec, /*immediate=*/true);
+                }
+                connected.push_back(uid);
+            } else {
+                // El AudioDeviceID puede cambiar entre conexiones
+                it->second.core_audio_id      = devId;
+                it->second.has_volume_control = CoreAudioHAL::hasVolumeControl(devId);
+                if (it->second.is_active) continue;  // ya estaba conectado: sin evento
+
+                // Dispositivo conocido que se reconecta
+                it->second.is_active = true;
+                for (auto& [gid, g] : impl->groups) {
+                    for (auto& m : g.members) {
+                        if (m.device_uid == uid) m.is_active = true;
+                    }
+                    impl->recalcGroupActive(g);
+                }
+                if (impl->db) impl->db->setDeviceActive(uid, true);
+                connected.push_back(uid);
             }
-        } else {
-            // Dispositivo conocido que se reconecta
-            it->second.is_active       = true;
-            it->second.core_audio_id   = devId;
         }
 
-        if (impl->onConnect) impl->onConnect(uid);
-    }
-
-    // Detectar dispositivos desconectados
-    for (auto& [uid, ds] : impl->devices) {
-        if (ds.is_active && currentMap.find(uid) == currentMap.end()) {
-            // Ya no está en la lista del sistema
-            const_cast<DeviceState&>(ds).is_active = false;
+        // Dispositivos desconectados
+        for (auto& [uid, ds] : impl->devices) {
+            if (!ds.is_active || currentMap.count(uid)) continue;
+            ds.is_active     = false;
+            ds.core_audio_id = kAudioDeviceUnknown;
             for (auto& [gid, g] : impl->groups) {
                 for (auto& m : g.members) {
                     if (m.device_uid == uid) m.is_active = false;
@@ -390,9 +431,15 @@ static OSStatus hotplugListenerProc(
                 impl->recalcGroupActive(g);
             }
             if (impl->db) impl->db->setDeviceActive(uid, false);
-            if (impl->onDisconnect) impl->onDisconnect(uid);
+            disconnected.push_back(uid);
         }
+
+        onConnect    = impl->onConnect;
+        onDisconnect = impl->onDisconnect;
     }
+
+    if (onConnect)    for (auto& uid : connected)    onConnect(uid);
+    if (onDisconnect) for (auto& uid : disconnected) onDisconnect(uid);
 
     return noErr;
 }
@@ -487,14 +534,16 @@ bool AudioEngine::init(DatabaseManager& db) {
             it->second.native_name   = name;
             it->second.is_active     = true;
             it->second.core_audio_id = devId;
-            it->second.volume        = CoreAudioHAL::getVolume(devId);
+            it->second.has_volume_control = CoreAudioHAL::hasVolumeControl(devId);
+            CoreAudioHAL::getVolume(devId, it->second.volume);
             it->second.is_muted      = CoreAudioHAL::getMute(devId);
         } else {
             // Dispositivo nuevo (no estaba en SQLite)
             DeviceState ds;
             ds.uid           = uid;
             ds.native_name   = name;
-            ds.volume        = CoreAudioHAL::getVolume(devId);
+            ds.has_volume_control = CoreAudioHAL::hasVolumeControl(devId);
+            CoreAudioHAL::getVolume(devId, ds.volume);
             ds.is_muted      = CoreAudioHAL::getMute(devId);
             ds.is_active     = true;
             ds.core_audio_id = devId;
@@ -571,6 +620,7 @@ std::vector<DeviceInfo> AudioEngine::getDevices() const {
         info.volume       = ds.volume;
         info.is_muted     = ds.is_muted;
         info.is_active    = ds.is_active;
+        info.has_volume_control = ds.has_volume_control;
         result.push_back(std::move(info));
     }
     return result;
@@ -585,8 +635,12 @@ AudioEngine::Result AudioEngine::setDeviceVolume(const std::string& uid, float v
     auto* ds = impl_->findDevice(uid);
     if (!ds) return Result::DeviceNotFound;
 
-    ds->volume = AudioLogic::clampVolume(volume);
-    impl_->halSetVolume(*ds, ds->volume);
+    const float newVolume = AudioLogic::clampVolume(volume);
+    if (impl_->halSetVolume(*ds, newVolume) == Impl::HalStatus::Rejected) {
+        // El hardware no aceptó el cambio: no se guarda un valor que no se aplicó
+        return Result::HalFailure;
+    }
+    ds->volume = newVolume;
 
     // Persistir con debounce
     if (impl_->db) {
