@@ -114,4 +114,10 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     if(APPLE)
         target_link_libraries(test_bridge_api PRIVATE ${COREFOUNDATION_LIB})
     endif()
+
+    # Registro en CTest: `ctest --test-dir build --output-on-failure`
+    foreach(t test_database_mgr test_audio_logic test_audio_engine test_bridge_api)
+        add_test(NAME ${t} COMMAND ${t})
+        set_tests_properties(${t} PROPERTIES TIMEOUT 60)
+    endforeach()
 endif()

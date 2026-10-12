@@ -88,10 +88,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 
 # Ejecutar todos los tests (los ejecutables solo se generan en Debug)
-./build/core/test_database_mgr
-./build/core/test_audio_logic
-./build/core/test_audio_engine
-./build/core/test_bridge_api
+ctest --test-dir build --output-on-failure
 ```
 
 **Artefacto generado:** `build/lib/libsyncbar_core.a`
@@ -193,7 +190,7 @@ Arquitectura tal como está construida hoy: `aidlc-docs/design-artifacts/current
 ## Tests
 
 ```
-Core Engine — 218 tests (cifra reportada al generar el código; no hay CI que la verifique)
+Core Engine — 4 suites registradas en CTest, ejecutadas en CI (GitHub Actions, macOS)
 ├── test_database_mgr   44 tests  Schema, CRUD, triggers, debounce, persist/reload
 ├── test_audio_logic    64 tests  dB, lineal, curvas, distribución de grupos
 ├── test_audio_engine   43 tests  Init, grupos, volumen, mute, thread safety

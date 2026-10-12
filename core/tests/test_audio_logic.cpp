@@ -16,6 +16,7 @@
 #include "audio_logic.h"
 #include <cstdio>
 #include <cmath>
+#include <string>
 
 // ── Utilidad ──────────────────────────────────────────────────────────────────
 

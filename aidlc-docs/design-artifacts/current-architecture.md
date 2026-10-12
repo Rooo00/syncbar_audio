@@ -46,8 +46,8 @@ La app está dividida en tres capas:
 | Audio (Windows) | WASAPI | **Solo stub**; las funciones HAL devuelven `false` |
 | Persistencia | SQLite 3.49.1 (amalgamation en `core/vendor/`) | WAL, `foreign_keys=ON`, `synchronous=NORMAL`, triggers |
 | Build | CMake 3.21+ (core) + Xcode (app) | Core: estática en macOS, DLL en Windows. Opción `-DUNIVERSAL=ON` para arm64+x86_64 |
-| Tests | Ejecutables C++ propios (sin framework) | 4 binarios, solo se compilan en `Debug`; no registrados en CTest |
-| CI | — | No existe |
+| Tests | Ejecutables C++ propios (sin framework) | 4 binarios registrados en CTest; solo se compilan en `Debug` |
+| CI | GitHub Actions (`.github/workflows/ci.yml`) | macOS 14: build Debug + `ctest`; build Release del core + `xcodebuild` de la app sin firma |
 
 ---
 
@@ -195,5 +195,5 @@ Hallazgos de la lectura del código, sin cambios aplicados:
 7. **Un solo archivo concentra demasiado.** `audio_engine.cpp` mezcla HAL, estado, grupos y persistencia; no hay una interfaz de HAL que permita usar un mock.
 8. **SQLite incluido en `vendor/` pero no usado por la app** (se enlaza `-lsqlite3` del sistema).
 9. **Windows es solo un stub.** `ole32`/`mmdevapi` se enlazan, pero no hay implementación ni carpeta `windows/`.
-10. **Infraestructura de calidad.** No hay CI y los tests no están registrados en CTest. *(La limpieza de octubre 2026 eliminó del repo `build/`, `.DS_Store` y el proyecto duplicado `AudioSyncPro/`, y agregó `.gitignore`.)*
+10. **Infraestructura de calidad.** *(Resuelto en octubre 2026: `.gitignore`, se eliminaron `build/`, `.DS_Store` y `AudioSyncPro/`; tests en CTest; CI en GitHub Actions.)* Pendiente: los tests dependían de includes transitivos de libc++ (`<string>`, `<atomic>`), ya corregidos; el código no compila en plataformas distintas de macOS/Windows por `-Werror` en los stubs.
 11. **Permiso de micrófono** declarado sin necesidad; puede provocar un aviso confuso al usuario.

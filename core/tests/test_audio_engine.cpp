@@ -15,6 +15,7 @@
 
 #include "audio_engine.h"
 #include "database_mgr.h"
+#include <atomic>
 #include <cassert>
 #include <cstdio>
 #include <string>
