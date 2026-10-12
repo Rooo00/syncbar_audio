@@ -35,6 +35,7 @@ typedef enum SB_Result {
     SB_ERR_LABEL_TOO_LONG        = 6,  // Label > 64 caracteres UTF-8
     SB_ERR_DB_FAILURE            = 7,
     SB_ERR_NOT_INITIALIZED       = 8,
+    SB_ERR_HAL_FAILURE           = 9,  // El hardware rechazó el cambio
 } SB_Result;
 
 /* ─── Snapshot de dispositivo (lectura) ────────────────────────────────── */
@@ -45,6 +46,7 @@ typedef struct SB_DeviceInfo {
     float   volume;             // [0.0 – 1.0]
     bool    is_muted;
     bool    is_active;          // false = desconectado físicamente
+    bool    has_volume_control; // false = el hardware no expone volumen (HDMI, etc.)
 } SB_DeviceInfo;
 
 /* ─── Snapshot de grupo (lectura) ──────────────────────────────────────── */
@@ -112,7 +114,9 @@ SB_Result sb_get_devices(
 
 /* Establece el volumen de un dispositivo.
  * volume: [0.0 – 1.0]. El núcleo convierte a dB para el HAL.
- * Returns: SB_OK, SB_ERR_DEVICE_NOT_FOUND, SB_ERR_INVALID_VOLUME */
+ * Si el dispositivo está desconectado, el valor solo se guarda.
+ * Returns: SB_OK, SB_ERR_DEVICE_NOT_FOUND, SB_ERR_INVALID_VOLUME,
+ *          SB_ERR_HAL_FAILURE (el hardware rechazó el cambio; no se guarda) */
 SB_Result sb_set_device_volume(const char* uid, float volume);
 
 /* Establece el estado de mute de un dispositivo individual.

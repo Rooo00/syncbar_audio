@@ -101,9 +101,10 @@ Patrón **pImpl** (`AudioEngine::Impl`). Contiene:
 - **HAL CoreAudio** (namespace `CoreAudioHAL`, bajo `#ifdef __APPLE__`):
   - `enumerateOutputDevices` — `kAudioHardwarePropertyDevices` filtrado por `kAudioDevicePropertyStreamConfiguration` en scope de salida.
   - `getUID` / `getName` — `kAudioDevicePropertyDeviceUID` / `DeviceNameCFString`. El UID es la clave persistente.
-  - `get/setVolume` — `kAudioHardwareServiceDeviceProperty_VirtualMainVolume`.
+  - `get/setVolume` — `kAudioHardwareServiceDeviceProperty_VirtualMainVolume`; si no está disponible, `kAudioDevicePropertyVolumeScalar` por canal (main, 1, 2). Ambas revisan el `OSStatus`.
+  - `hasVolumeControl` — indica si el dispositivo permite cambiar su volumen (HDMI/DisplayPort suelen no permitirlo); se expone como `has_volume_control`.
   - `get/setMute` — `kAudioDevicePropertyMute`.
-- **Hotplug**: un listener sobre `kAudioHardwarePropertyDevices` en `kAudioObjectSystemObject`. En cada cambio vuelve a enumerar, compara contra el mapa en memoria, marca altas/bajas, actualiza membresías y SQLite, e invoca los callbacks `onConnect`/`onDisconnect`.
+- **Hotplug**: un listener sobre `kAudioHardwarePropertyDevices` en `kAudioObjectSystemObject`. En cada cambio vuelve a enumerar y, con `stateMutex` tomado, compara contra el mapa en memoria, marca altas/bajas/reconexiones y actualiza membresías y SQLite. Los callbacks `onConnect`/`onDisconnect` se invocan **después** de soltar el lock y solo para dispositivos nuevos, reconectados o desconectados.
 - **Operaciones** (devuelven `AudioEngine::Result`): dispositivos (`setDeviceVolume/Mute/Label`) y grupos (`create`, `addDevice`, `removeDevice`, `setGroupVolume`, `setGroupMute`, `setGroupName`, `delete`).
 
 **Secuencia de `init()`:**
@@ -133,7 +134,7 @@ Triggers:
 - `trg_max_devices_per_group` — aborta con `GROUP_DEVICE_LIMIT_EXCEEDED` al insertar un quinto miembro.
 - `trg_update_group_active` — recalcula `virtual_groups.is_active` al cambiar `is_active` de un miembro.
 
-**Debounce de volumen (300 ms):** `upsertDevice(rec, immediate=false)` guarda el registro en un mapa `pendingDevices` con su timestamp. No hay temporizador: los registros vencidos solo se escriben **cuando llega otra escritura** o al llamar `flushPending()` (en `shutdown`). Por eso el último valor de un slider puede no llegar a disco hasta el cierre limpio de la app.
+**Debounce de volumen (300 ms):** `upsertDevice(rec, immediate=false)` guarda el registro en un mapa `pendingDevices` con su timestamp y despierta a un hilo propio de `DatabaseManager`. Ese hilo escribe cada registro cuando pasan 300 ms sin cambios; se inicia en `open()` y se detiene en `close()`, que además hace `flushPending()`.
 
 ### 4.4 Bridge C-API (`bridge_api.h/.cpp`)
 
@@ -151,7 +152,7 @@ Triggers:
 | Archivo | Rol |
 |---|---|
 | `App.swift` | `@main`. Un `MenuBarExtra` cuyo ícono (`speaker.wave.2[.fill]`) cambia si hay un grupo activo sin mute. Inyecta el ViewModel como `environmentObject`. |
-| `Info.plist` | `LSUIElement=YES` (sin Dock ni Cmd+Tab), bundle `com.syncbar.audio`, `NSMicrophoneUsageDescription` (no necesario para controlar salidas). |
+| `Info.plist` | `LSUIElement=YES` (sin Dock ni Cmd+Tab), bundle `com.syncbar.audio`, sin permisos de micrófono (no se necesitan para controlar salidas). |
 | `CoreBridge/SyncBarBridge.h` | Bridging header → `bridge_api.h`. |
 | `CoreBridge/AudioViewModel.swift` | Único ViewModel (`ObservableObject`). Publica `devices`, `groups` e `isReady`. Llama `sb_*` de forma síncrona en el hilo principal y actualiza el estado de forma optimista si devuelve `SB_OK`. Convierte los buffers C a `String` con `cStr`. |
 | `CoreBridge/AudioViewModel+Preview.swift` | Datos simulados para Xcode Previews (`init(skipBridgeInit:)`). |
@@ -160,9 +161,11 @@ Triggers:
 | `Views/GroupRowView.swift` | Slider maestro, mute lógico, `sheet` para editar miembros (`GroupEditorSheet`). |
 | `Views/InlineLabelEditor.swift` | `TextField` reutilizable con confirmación al perder el foco. |
 
+**Volumen no aplicable:** si `has_volume_control` es `false`, `DeviceRowView` deshabilita el slider y muestra "Sin control de volumen". Si el hardware rechaza un cambio, `sb_set_device_volume` devuelve `SB_ERR_HAL_FAILURE` y el ViewModel no actualiza su valor (el slider vuelve a su posición).
+
 **Callbacks de hardware:** C no puede capturar contexto Swift, así que el ViewModel se guarda en una variable global `weak var _sharedViewModel`. Los closures C hacen `DispatchQueue.main.async` hacia el ViewModel. En una conexión se vuelve a leer toda la lista de dispositivos; en una desconexión se actualiza el estado local.
 
-**Enlazado (Xcode):** `libsyncbar_core.a` desde `../../build/lib`, más `CoreAudio.framework` y `AudioToolbox.framework`. También `-lc++ -lsqlite3`. Como `sqlite3` se enlaza como `PRIVATE` en CMake y no va dentro del `.a`, la app termina usando el **SQLite del sistema**, no la versión incluida en `vendor/`.
+**Enlazado (Xcode):** `libsyncbar_core.a` desde `../../build/lib`, más `CoreAudio.framework` y `AudioToolbox.framework`. También `-lc++`. SQLite se compila como librería `OBJECT` y sus objetos van dentro de `libsyncbar_core.a`, así que la app usa la versión 3.49.1 de `vendor/` y no la del sistema.
 
 ---
 
@@ -188,12 +191,12 @@ Hallazgos de la lectura del código, sin cambios aplicados:
 
 1. **No hay ruteo de audio.** Los grupos solo reparten volumen; no generan salida simultánea. Ver ADR-07.
 2. **Volumen relativo siempre en 1.0.** No hay API (`sb_set_member_volume` o similar) para ajustarlo, así que `distributeGroupVolume` siempre devuelve el volumen maestro.
-3. **El debounce no tiene temporizador.** El último cambio se queda en memoria hasta la siguiente escritura o hasta `shutdown`; si la app se cierra de forma abrupta, se pierde.
-4. **Errores del HAL ignorados.** `getVolume`/`getMute` no revisan el `OSStatus`. `VirtualMainVolume` no existe en dispositivos sin volumen por hardware (HDMI, algunos USB) y la UI no lo refleja.
-5. **El listener de hotplug** invoca `onConnect` para *todos* los dispositivos presentes en cada cambio (no solo los nuevos) y ejecuta los callbacks mientras tiene `stateMutex` tomado.
+3. *(Resuelto en octubre 2026)* ~~El debounce no tiene temporizador.~~ Ahora un hilo escribe los pendientes a los 300 ms.
+4. *(Resuelto en octubre 2026, solo volumen)* ~~Errores del HAL ignorados.~~ El volumen revisa el `OSStatus`, usa `VolumeScalar` como respaldo y la UI marca los dispositivos sin control de volumen. Pendiente: `setMute` sigue sin informar rechazos del hardware, y el camino "rechazado" no tiene test hasta que exista el mock del HAL (Paso 2).
+5. *(Resuelto en octubre 2026)* ~~El listener de hotplug avisaba de todos los dispositivos y con el lock tomado.~~ Ahora solo avisa de cambios reales, fuera del lock, y una reconexión también reactiva las membresías de grupo.
 6. **Estado global** en el bridge y en Swift (`g_engine`, `_sharedViewModel`): solo admite una instancia y complica los tests.
 7. **Un solo archivo concentra demasiado.** `audio_engine.cpp` mezcla HAL, estado, grupos y persistencia; no hay una interfaz de HAL que permita usar un mock.
-8. **SQLite incluido en `vendor/` pero no usado por la app** (se enlaza `-lsqlite3` del sistema).
+8. *(Resuelto en octubre 2026)* ~~SQLite de `vendor/` no usado por la app.~~ Ahora va dentro de `libsyncbar_core.a`.
 9. **Windows es solo un stub.** `ole32`/`mmdevapi` se enlazan, pero no hay implementación ni carpeta `windows/`.
 10. **Infraestructura de calidad.** *(Resuelto en octubre 2026: `.gitignore`, se eliminaron `build/`, `.DS_Store` y `AudioSyncPro/`; tests en CTest; CI en GitHub Actions.)* Pendiente: los tests dependían de includes transitivos de libc++ (`<string>`, `<atomic>`), ya corregidos; el código no compila en plataformas distintas de macOS/Windows por `-Werror` en los stubs.
-11. **Permiso de micrófono** declarado sin necesidad; puede provocar un aviso confuso al usuario.
+11. *(Resuelto en octubre 2026)* ~~Permiso de micrófono innecesario.~~ Eliminado de `Info.plist`.
