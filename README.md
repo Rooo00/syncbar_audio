@@ -1,6 +1,6 @@
 # SyncBar Audio
 
-Utilidad de sistema multiplataforma para la gestión avanzada de dispositivos de audio y la creación de grupos de salida virtuales de baja latencia.
+Utilidad de sistema multiplataforma (hoy solo macOS; Windows planeado para la Iteración 2) para la gestión avanzada de dispositivos de audio y la creación de grupos de salida virtuales de baja latencia.
 
 Vive exclusivamente en la barra de menú (macOS) o bandeja del sistema (Windows). Sin ventanas, sin Dock, sin complejidad.
 
@@ -43,7 +43,7 @@ Vive exclusivamente en la barra de menú (macOS) o bandeja del sistema (Windows)
 ## Estructura del proyecto
 
 ```
-sync-bar-audio/
+syncbar_audio/
 ├── CMakeLists.txt              # Build del Core
 ├── core/                       # Núcleo compartido C++17
 │   ├── include/
@@ -55,7 +55,7 @@ sync-bar-audio/
 │   │   ├── audio_engine.cpp    # HAL CoreAudio/WASAPI + StateManager + Groups
 │   │   ├── bridge_api.cpp      # Implementación de la C-API
 │   │   └── database_mgr.cpp    # CRUD SQLite + debounce
-│   ├── tests/                  # 218 tests, 0 fallos
+│   ├── tests/                  # 4 ejecutables de prueba (solo en Debug)
 │   └── vendor/sqlite3.*        # SQLite 3.49.1 amalgamation
 ├── macos/
 │   └── SyncBarAudio/           # Proyecto Xcode
@@ -69,7 +69,6 @@ sync-bar-audio/
 │               ├── DeviceRowView.swift     # Slider + mute + inline editor
 │               ├── GroupRowView.swift      # Slider maestro + GroupEditorSheet
 │               └── InlineLabelEditor.swift # Editor inline reutilizable
-├── windows/                    # Iteración 2 (WinUI 3 / C#)
 └── aidlc-docs/                 # Documentación AI-SDLC
 ```
 
@@ -79,6 +78,8 @@ sync-bar-audio/
 
 **Requisitos:** CMake 3.21+, Xcode Command Line Tools (macOS) o MSVC (Windows)
 
+> La carpeta `build/` no se versiona (ver `.gitignore`); se genera localmente con los comandos siguientes.
+
 ```bash
 # Configurar (Debug)
 cmake -B build -DCMAKE_BUILD_TYPE=Debug
@@ -86,7 +87,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug
 # Compilar
 cmake --build build
 
-# Ejecutar todos los tests
+# Ejecutar todos los tests (los ejecutables solo se generan en Debug)
 ./build/core/test_database_mgr
 ./build/core/test_audio_logic
 ./build/core/test_audio_engine
@@ -182,14 +183,17 @@ sb_delete_group(groupId)
 | ADR-05 | Dispositivo inactivo al desconectarse, no eliminado del grupo |
 | ADR-06 | macOS primero, Windows en Iteración 2 |
 
-Documentación completa en `aidlc-docs/design-artifacts/architectural-decisions.md`
+| ADR-07 | *(Propuesto)* Ruteo de audio de grupos vía Aggregate Device multi-salida |
+
+Documentación completa en `aidlc-docs/design-artifacts/architectural-decisions.md`.
+Arquitectura tal como está construida hoy: `aidlc-docs/design-artifacts/current-architecture.md`.
 
 ---
 
 ## Tests
 
 ```
-Core Engine — 218 tests, 0 fallos
+Core Engine — 218 tests (cifra reportada al generar el código; no hay CI que la verifique)
 ├── test_database_mgr   44 tests  Schema, CRUD, triggers, debounce, persist/reload
 ├── test_audio_logic    64 tests  dB, lineal, curvas, distribución de grupos
 ├── test_audio_engine   43 tests  Init, grupos, volumen, mute, thread safety

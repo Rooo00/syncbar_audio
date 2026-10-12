@@ -188,7 +188,7 @@ SB_Result sb_delete_group(int32_t group_id);
 ### macOS (Swift)
 
 ```swift
-// AudioSyncPro/CoreBridge/SyncBarBridge.h  (bridging header)
+// SyncBarAudio/CoreBridge/SyncBarBridge.h  (bridging header)
 #import "bridge_api.h"
 
 // Uso en Swift:

@@ -69,10 +69,9 @@ core/
   tests/                        test_audio_logic / test_audio_engine / test_database_mgr / test_bridge_api
   vendor/sqlite3.{c,h}
 macos/
-  SyncBarAudio/                 Proyecto Xcode vigente
-  AudioSyncPro/                 Copia obsoleta (nombre anterior del proyecto)
+  SyncBarAudio/                 Proyecto Xcode
 aidlc-docs/                     Requisitos, historias, diseño, ADRs
-build/                          Artefactos de compilación versionados por error
+.gitignore                      Excluye build/, DerivedData, .DS_Store, *.db, etc.
 ```
 
 ---
@@ -196,5 +195,5 @@ Hallazgos de la lectura del código, sin cambios aplicados:
 7. **Un solo archivo concentra demasiado.** `audio_engine.cpp` mezcla HAL, estado, grupos y persistencia; no hay una interfaz de HAL que permita usar un mock.
 8. **SQLite incluido en `vendor/` pero no usado por la app** (se enlaza `-lsqlite3` del sistema).
 9. **Windows es solo un stub.** `ole32`/`mmdevapi` se enlazan, pero no hay implementación ni carpeta `windows/`.
-10. **Higiene del repo.** `build/` y `.DS_Store` están versionados, no hay `.gitignore`, el proyecto `AudioSyncPro/` está duplicado, no hay CI y los tests no están en CTest.
+10. **Infraestructura de calidad.** No hay CI y los tests no están registrados en CTest. *(La limpieza de octubre 2026 eliminó del repo `build/`, `.DS_Store` y el proyecto duplicado `AudioSyncPro/`, y agregó `.gitignore`.)*
 11. **Permiso de micrófono** declarado sin necesidad; puede provocar un aviso confuso al usuario.

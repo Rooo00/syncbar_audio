@@ -1,2 +1,0 @@
-/usr/bin/ar qc ../lib/libsyncbar_core.a CMakeFiles/syncbar_core.dir/src/database_mgr.cpp.o CMakeFiles/syncbar_core.dir/src/audio_engine.cpp.o CMakeFiles/syncbar_core.dir/src/bridge_api.cpp.o
-/usr/bin/ranlib ../lib/libsyncbar_core.a
