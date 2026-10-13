@@ -5,6 +5,7 @@ import SwiftUI
 // Fila de un grupo virtual con:
 //   - Slider maestro de volumen (US-13)
 //   - Mute lógico (ADR-03, US-13)
+//   - Usar el grupo como salida de audio del sistema (ADR-07)
 //   - Edición inline del nombre (US-12 aplicado a grupos)
 //   - Lista expandible de miembros con volumen relativo
 //   - Botón de eliminar grupo
@@ -28,7 +29,13 @@ struct GroupRowView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     nameRow
                     masterSlider
+                    if let error = vm.routingError, error.groupId == group.id {
+                        Text(error.message)
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
                 }
+                outputButton
                 controlButtons
             }
             .padding(.horizontal, 14)
@@ -100,6 +107,16 @@ struct GroupRowView: View {
                     .padding(.vertical, 1)
                     .background(Color.secondary.opacity(0.12), in: Capsule())
 
+                if group.isOutput {
+                    Text("Salida")
+                        .font(.caption2)
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        .help("Todo el audio del sistema sale por este grupo")
+                }
+
                 if !group.isActive {
                     Text("Sin señal")
                         .font(.caption2)
@@ -142,6 +159,29 @@ struct GroupRowView: View {
             .disabled(!group.isActive || group.isMuted)
             .tint(group.isMuted ? Color.secondary : Color.accentColor)
         }
+    }
+
+    // Usar / dejar de usar el grupo como salida del sistema (ADR-07)
+    private var outputButton: some View {
+        Button {
+            if group.isOutput {
+                vm.deactivateGroupOutput()
+            } else {
+                vm.activateGroupOutput(groupId: group.id)
+            }
+        } label: {
+            Image(systemName: group.isOutput ? "stop.fill" : "play.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(group.isOutput ? Color.white : Color.accentColor)
+                .frame(width: 26, height: 26)
+                .background(
+                    group.isOutput ? Color.accentColor : Color.accentColor.opacity(0.12),
+                    in: Circle()
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!group.isActive && !group.isOutput)
+        .help(group.isOutput ? "Dejar de usar como salida" : "Usar como salida de audio")
     }
 
     private var controlButtons: some View {
@@ -377,6 +417,16 @@ struct GroupEditorSheet: View {
 #Preview("Grupo activo") {
     let vm = AudioViewModel.preview
     return GroupRowView(group: vm.groups[0])
+        .environmentObject(vm)
+        .frame(width: 320)
+        .background(.regularMaterial)
+}
+
+#Preview("Grupo como salida") {
+    let vm = AudioViewModel.preview
+    var g = vm.groups[0]
+    g.isOutput = true
+    return GroupRowView(group: g)
         .environmentObject(vm)
         .frame(width: 320)
         .background(.regularMaterial)
