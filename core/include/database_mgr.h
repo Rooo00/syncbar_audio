@@ -147,6 +147,13 @@ public:
      */
     void flushPending();
 
+    // ── Estado de la app (clave/valor) ────────────────────────────────────────
+
+    /** Lee un valor; devuelve false si la clave no existe. */
+    bool getAppState(const std::string& key, std::string& outValue) const;
+    bool setAppState(const std::string& key, const std::string& value);
+    bool deleteAppState(const std::string& key);
+
 private:
     struct Impl;
     Impl* impl_;
