@@ -305,6 +305,38 @@ void test_result_string_coverage() {
     CHECK(SB_ERR_LABEL_TOO_LONG        == 6, "LABEL_TOO_LONG = 6");
     CHECK(SB_ERR_DB_FAILURE            == 7, "DB_FAILURE = 7");
     CHECK(SB_ERR_NOT_INITIALIZED       == 8, "NOT_INITIALIZED = 8");
+    CHECK(SB_ERR_HAL_FAILURE           == 9, "HAL_FAILURE = 9");
+    CHECK(SB_ERR_NO_ACTIVE_MEMBERS     == 10, "NO_ACTIVE_MEMBERS = 10");
+    CHECK(SB_ERR_ROUTING_FAILURE       == 11, "ROUTING_FAILURE = 11");
+}
+
+// Sin miembros conectados: nunca crea una salida real (en macOS el router es CoreAudio)
+void test_group_output_via_bridge() {
+    printf("\n[T11] Ruteo de grupos vía C-API (sin hardware)\n");
+
+    CHECK(sb_activate_group_output(1) == SB_ERR_NOT_INITIALIZED,
+          "activate antes de sb_init → NOT_INITIALIZED");
+    CHECK(sb_deactivate_group_output() == SB_ERR_NOT_INITIALIZED,
+          "deactivate antes de sb_init → NOT_INITIALIZED");
+
+    sb_init(TEST_DB);
+    CHECK(sb_activate_group_output(9999) == SB_ERR_GROUP_NOT_FOUND,
+          "grupo inexistente → GROUP_NOT_FOUND");
+
+    int32_t gid = 0;
+    sb_create_group("Sin miembros", &gid);
+    CHECK(sb_activate_group_output(gid) == SB_ERR_NO_ACTIVE_MEMBERS,
+          "grupo sin miembros conectados → NO_ACTIVE_MEMBERS");
+
+    SB_GroupInfo groups[8];
+    int32_t n = 0;
+    sb_get_groups(groups, 8, &n);
+    bool anyOutput = false;
+    for (int32_t i = 0; i < n; ++i) anyOutput = anyOutput || groups[i].is_output;
+    CHECK(n >= 1 && !anyOutput, "ningún grupo es la salida (is_output = false)");
+
+    CHECK(sb_deactivate_group_output() == SB_OK, "deactivate sin grupo activo → SB_OK");
+    sb_shutdown();
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -322,6 +354,7 @@ int main() {
     test_callbacks_registered();
     test_get_group_members();
     test_result_string_coverage();
+    test_group_output_via_bridge();
 
     printf("\n══════════════════════════════════\n");
     printf("Results: %d passed, %d failed\n", passed, failed);

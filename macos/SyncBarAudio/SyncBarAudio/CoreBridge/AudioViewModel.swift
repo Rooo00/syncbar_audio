@@ -20,6 +20,7 @@ struct AudioGroupVM: Identifiable, Equatable {
     var isMuted: Bool
     var isActive: Bool
     var members: [GroupMemberVM]
+    var isOutput: Bool = false   // el grupo es la salida de audio del sistema (ADR-07)
 }
 
 struct GroupMemberVM: Identifiable, Equatable {
@@ -43,8 +44,12 @@ final class AudioViewModel: ObservableObject {
     @Published var groups:  [AudioGroupVM]  = []
     @Published var isReady: Bool            = false
 
+    /// Último error al activar un grupo como salida (se muestra en su fila)
+    @Published var routingError: (groupId: Int32, message: String)?
+
     var menuBarIcon: String {
-        groups.contains { $0.isActive && !$0.isMuted }
+        if groups.contains(where: { $0.isOutput }) { return "hifispeaker.2.fill" }
+        return groups.contains { $0.isActive && !$0.isMuted }
             ? "speaker.wave.2.fill"
             : "speaker.wave.2"
     }
@@ -107,15 +112,8 @@ final class AudioViewModel: ObservableObject {
     }
 
     func handleDeviceDisconnected(uid: String) {
-        if let idx = devices.firstIndex(where: { $0.id == uid }) {
-            devices[idx].isActive = false
-        }
-        for gi in groups.indices {
-            for mi in groups[gi].members.indices where groups[gi].members[mi].id == uid {
-                groups[gi].members[mi].isActive = false
-            }
-            groups[gi].isActive = groups[gi].members.contains { $0.isActive }
-        }
+        // El core pudo reconstruir o desactivar la salida del grupo (ADR-07)
+        refreshAll()
     }
 
     // ── Refresh ───────────────────────────────────────────────────────────────
@@ -161,7 +159,7 @@ final class AudioViewModel: ObservableObject {
             return AudioGroupVM(id: g.id, name: cStr(g.name),
                                 masterVolume: g.master_volume,
                                 isMuted: g.is_muted, isActive: g.is_active,
-                                members: members)
+                                members: members, isOutput: g.is_output)
         }
     }
 
@@ -229,7 +227,35 @@ final class AudioViewModel: ObservableObject {
 
     func deleteGroup(groupId: Int32) {
         if sb_delete_group(groupId) == SB_OK {
-            groups.removeAll { $0.id == groupId }
+            // Borrar el grupo activo restaura la salida previa: releer todo
+            refreshGroups()
+        }
+    }
+
+    // ── Ruteo: grupo como salida del sistema (ADR-07) ─────────────────────────
+
+    func activateGroupOutput(groupId: Int32) {
+        let result = sb_activate_group_output(groupId)
+        if result == SB_OK {
+            routingError = nil
+        } else {
+            routingError = (groupId: groupId, message: Self.routingMessage(for: result))
+        }
+        refreshGroups()
+    }
+
+    func deactivateGroupOutput() {
+        _ = sb_deactivate_group_output()
+        routingError = nil
+        refreshGroups()
+    }
+
+    private static func routingMessage(for result: SB_Result) -> String {
+        switch result {
+        case SB_ERR_NO_ACTIVE_MEMBERS: return "Ningún dispositivo del grupo está conectado."
+        case SB_ERR_ROUTING_FAILURE:   return "macOS no permitió crear la salida del grupo."
+        case SB_ERR_GROUP_NOT_FOUND:   return "El grupo ya no existe."
+        default:                       return "No se pudo usar el grupo como salida."
         }
     }
 }

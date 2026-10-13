@@ -36,6 +36,8 @@ typedef enum SB_Result {
     SB_ERR_DB_FAILURE            = 7,
     SB_ERR_NOT_INITIALIZED       = 8,
     SB_ERR_HAL_FAILURE           = 9,  // El hardware rechazó el cambio
+    SB_ERR_NO_ACTIVE_MEMBERS     = 10, // El grupo no tiene miembros conectados
+    SB_ERR_ROUTING_FAILURE       = 11, // No se pudo crear/usar la salida del grupo
 } SB_Result;
 
 /* ─── Snapshot de dispositivo (lectura) ────────────────────────────────── */
@@ -58,6 +60,7 @@ typedef struct SB_GroupInfo {
     bool    is_muted;           // Mute lógico (no propaga al hardware)
     bool    is_active;          // false si todos los miembros están inactivos
     int32_t member_count;       // Número de miembros (0–4)
+    bool    is_output;          // true = el grupo es la salida de audio del sistema
 } SB_GroupInfo;
 
 /* ─── Snapshot de miembro de grupo ────────────────────────────────────── */
@@ -184,6 +187,16 @@ SB_Result sb_set_group_name(int32_t group_id, const char* name);
 /* Elimina un grupo y todas sus membresías (CASCADE en SQLite).
  * Returns: SB_OK, SB_ERR_GROUP_NOT_FOUND */
 SB_Result sb_delete_group(int32_t group_id);
+
+/* Ruteo (ADR-07): todo el audio del sistema sale por los miembros conectados
+ * del grupo. Un solo grupo a la vez; la salida previa se restaura al
+ * desactivar, al cerrar la app o tras un cierre abrupto (en sb_init).
+ * Returns: SB_OK, SB_ERR_GROUP_NOT_FOUND, SB_ERR_NO_ACTIVE_MEMBERS,
+ *          SB_ERR_ROUTING_FAILURE (el estado anterior no cambia) */
+SB_Result sb_activate_group_output(int32_t group_id);
+
+/* Restaura la salida previa. Returns: SB_OK (también sin grupo activo) */
+SB_Result sb_deactivate_group_output(void);
 ```
 
 ---
