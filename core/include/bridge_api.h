@@ -47,6 +47,7 @@ typedef enum SB_Result {
     SB_ERR_LABEL_TOO_LONG        = 6,  // Label > 64 caracteres UTF-8
     SB_ERR_DB_FAILURE            = 7,
     SB_ERR_NOT_INITIALIZED       = 8,
+    SB_ERR_HAL_FAILURE           = 9,  // El hardware rechazó el cambio
 } SB_Result;
 
 /* ── Structs de datos (snapshots de solo lectura para la UI) ───────────────── */
@@ -62,6 +63,7 @@ typedef struct SB_DeviceInfo {
     float   volume;             // [0.0 – 1.0]
     bool    is_muted;
     bool    is_active;          // false = desconectado físicamente
+    bool    has_volume_control; // false = el hardware no expone volumen (HDMI, etc.)
 } SB_DeviceInfo;
 
 /**

@@ -36,9 +36,5 @@
     <!-- macOS 13+ requerido (MenuBarExtra API) -->
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
-
-    <!-- Acceso a dispositivos de audio (requerido por CoreAudio) -->
-    <key>NSMicrophoneUsageDescription</key>
-    <string>SyncBar Audio necesita acceso al sistema de audio para controlar los dispositivos de salida.</string>
 </dict>
 </plist>

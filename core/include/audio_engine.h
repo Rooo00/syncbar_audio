@@ -21,6 +21,7 @@ struct DeviceInfo {
     float       volume;      // [0.0 – 1.0]
     bool        is_muted;
     bool        is_active;   // false = desconectado físicamente
+    bool        has_volume_control; // false = el hardware no expone volumen (HDMI, etc.)
 };
 
 /**
@@ -112,6 +113,7 @@ public:
         LabelTooLong            = 6,
         DbFailure               = 7,
         NotInitialized          = 8,
+        HalFailure              = 9,
     };
 
     Result setDeviceVolume(const std::string& uid, float volume);

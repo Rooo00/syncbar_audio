@@ -5,7 +5,9 @@
 # del HAL (RNF-02).
 
 # ── SQLite3 amalgamation (vendor, sin dependencias externas) ─────────────────
-add_library(sqlite3 STATIC
+# OBJECT: sus objetos quedan dentro de libsyncbar_core, así la app usa esta versión
+# de SQLite y no la del sistema (-lsqlite3).
+add_library(sqlite3 OBJECT
     vendor/sqlite3.c
 )
 target_include_directories(sqlite3 PUBLIC vendor)
@@ -93,7 +95,7 @@ message(STATUS "Core type   : $<IF:$<BOOL:${APPLE}>,STATIC,SHARED>")
 # ── Tests (solo en Debug) ─────────────────────────────────────────────────────
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_executable(test_database_mgr tests/test_database_mgr.cpp)
-    target_link_libraries(test_database_mgr PRIVATE syncbar_core sqlite3)
+    target_link_libraries(test_database_mgr PRIVATE syncbar_core)
     target_include_directories(test_database_mgr PRIVATE include)
 
     add_executable(test_audio_logic tests/test_audio_logic.cpp)
@@ -101,7 +103,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     # audio_logic.h es header-only, no necesita linkear syncbar_core
 
     add_executable(test_audio_engine tests/test_audio_engine.cpp)
-    target_link_libraries(test_audio_engine PRIVATE syncbar_core sqlite3)
+    target_link_libraries(test_audio_engine PRIVATE syncbar_core)
     target_include_directories(test_audio_engine PRIVATE include)
     if(APPLE)
         find_library(COREFOUNDATION_LIB CoreFoundation REQUIRED)
@@ -109,7 +111,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     endif()
 
     add_executable(test_bridge_api tests/test_bridge_api.cpp)
-    target_link_libraries(test_bridge_api PRIVATE syncbar_core sqlite3)
+    target_link_libraries(test_bridge_api PRIVATE syncbar_core)
     target_include_directories(test_bridge_api PRIVATE include)
     if(APPLE)
         target_link_libraries(test_bridge_api PRIVATE ${COREFOUNDATION_LIB})

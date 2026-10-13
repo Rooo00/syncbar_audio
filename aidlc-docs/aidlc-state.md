@@ -115,6 +115,17 @@ sync-bar-audio/
 
 ---
 
+## Correcciones post-Iteración 1 (octubre 2026)
+
+| Paso | Contenido | Estado |
+|------|-----------|--------|
+| Paso 1 | Debounce con temporizador (US-04), errores de volumen del HAL + "Sin control de volumen" (US-02/US-11), hotplug sin avisos repetidos y fuera del lock (US-01/US-05), SQLite de `vendor/` dentro del core, sin permiso de micrófono | ✅ Tests en CTest (Linux) y CI · ⚠️ Pendiente de verificar en una Mac con dispositivos reales |
+| Paso 2 | Separar el HAL detrás de una interfaz + mock | Pendiente |
+| Paso 3 | Ruteo de grupos (ADR-07 fase 1) | Pendiente |
+| Paso 4 | Volumen relativo por miembro (US-03) | Pendiente |
+
+---
+
 ## Próximo Paso — Iteración 2
 
 → UI Windows (WinUI 3 / C#): TrayIcon, Flyout, SyncBarBridge.cs (P/Invoke), vistas XAML.

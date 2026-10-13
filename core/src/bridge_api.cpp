@@ -31,6 +31,7 @@ static SB_Result toSBResult(AudioEngine::Result r) {
         case AudioEngine::Result::LabelTooLong:        return SB_ERR_LABEL_TOO_LONG;
         case AudioEngine::Result::DbFailure:           return SB_ERR_DB_FAILURE;
         case AudioEngine::Result::NotInitialized:      return SB_ERR_NOT_INITIALIZED;
+        case AudioEngine::Result::HalFailure:          return SB_ERR_HAL_FAILURE;
         default:                                       return SB_ERR_NOT_INITIALIZED;
     }
 }
@@ -183,6 +184,7 @@ SB_Result sb_get_devices(SB_DeviceInfo* out_devices,
         dst.volume    = src.volume;
         dst.is_muted  = src.is_muted;
         dst.is_active = src.is_active;
+        dst.has_volume_control = src.has_volume_control;
     }
     *out_count = n;
     return SB_OK;

@@ -95,6 +95,15 @@ struct DeviceRowView: View {
                         .padding(.vertical, 1)
                         .background(Color.secondary.opacity(0.12), in: Capsule())
                 }
+                if device.isActive && !device.hasVolumeControl {
+                    Text("Sin control de volumen")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .help("Este dispositivo no permite cambiar su volumen desde el sistema")
+                }
             }
             .onTapGesture(count: 2) { startEdit() }  // Doble clic → editar
             .help("Doble clic para renombrar")
@@ -119,7 +128,7 @@ struct DeviceRowView: View {
                 ),
                 in: 0...1
             )
-            .disabled(!device.isActive || device.isMuted)
+            .disabled(!device.isActive || device.isMuted || !device.hasVolumeControl)
             .tint(sliderTint)
         }
     }
@@ -127,6 +136,7 @@ struct DeviceRowView: View {
     private var sliderTint: Color {
         if !device.isActive { return .secondary }
         if device.isMuted   { return .secondary }
+        if !device.hasVolumeControl { return .secondary }
         return .accentColor
     }
 
@@ -190,6 +200,17 @@ struct DeviceRowView: View {
     let vm = AudioViewModel.preview
     var d = vm.devices[1]
     d.isMuted = true
+    return DeviceRowView(device: d)
+        .environmentObject(vm)
+        .frame(width: 320)
+        .background(.regularMaterial)
+}
+
+#Preview("Sin control de volumen") {
+    let vm = AudioViewModel.preview
+    var d = vm.devices[0]
+    d.displayName = "Monitor HDMI"
+    d.hasVolumeControl = false
     return DeviceRowView(device: d)
         .environmentObject(vm)
         .frame(width: 320)
