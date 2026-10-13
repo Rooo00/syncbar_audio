@@ -178,7 +178,7 @@ Triggers:
 | `CoreBridge/AudioViewModel+Preview.swift` | Datos simulados para Xcode Previews (`init(skipBridgeInit:)`). |
 | `Views/PopoverView.swift` | Contenedor: secciones de dispositivos y grupos. |
 | `Views/DeviceRowView.swift` | Fila: nombre editable (doble clic), slider de volumen lineal, botón mute. Se deshabilita si está inactivo o muteado. |
-| `Views/GroupRowView.swift` | Slider maestro, mute lógico, `sheet` para editar miembros (`GroupEditorSheet`). |
+| `Views/GroupRowView.swift` | Slider maestro, mute lógico, botón ▶︎/■ "Usar como salida" (ADR-07) con etiqueta "Salida" y mensaje de error en la fila, `sheet` para editar miembros (`GroupEditorSheet`). |
 | `Views/InlineLabelEditor.swift` | `TextField` reutilizable con confirmación al perder el foco. |
 
 **Volumen no aplicable:** si `has_volume_control` es `false`, `DeviceRowView` deshabilita el slider y muestra "Sin control de volumen". Si el hardware rechaza un cambio, `sb_set_device_volume` devuelve `SB_ERR_HAL_FAILURE` y el ViewModel no actualiza su valor (el slider vuelve a su posición).
@@ -199,6 +199,9 @@ Triggers:
 
 **Mover el slider maestro de un grupo**
 `sb_set_group_volume` → `distributeGroupVolume` → `setVolume` en el HAL de cada miembro activo → upsert con debounce de cada dispositivo.
+
+**Usar un grupo como salida (ADR-07)**
+`GroupRowView` ▶︎ → `vm.activateGroupOutput` → `sb_activate_group_output` → `AudioEngine::activateGroupOutput` → `CoreAudioRouter::createGroupOutput` (Aggregate Device) + `setDefaultOutput` → la UI relee los grupos (`is_output`) y el ícono de la barra de menú cambia a `hifispeaker.2.fill`. ■ → `sb_deactivate_group_output` → se restaura la salida previa.
 
 **Conectar o desconectar un dispositivo**
 CoreAudio (hilo del sistema) → `CoreAudioHal::listenerProc` → `AudioEngine::Impl::handleHardwareChange` → `listOutputDevices()` → `reconcile` (estado + SQLite, con el lock) → callback C (sin el lock) → `DispatchQueue.main.async` → el ViewModel refresca dispositivos y grupos.

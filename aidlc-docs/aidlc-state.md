@@ -123,7 +123,7 @@ sync-bar-audio/
 | Paso 2 | Interfaz `AudioHal` (CoreAudio / nulo / mock), reconciliación única para `init()` y hotplug, rechazos de mute (`SB_ERR_HAL_FAILURE`), 36 tests nuevos con `MockAudioHal` | ✅ Tests en CTest (Linux) y CI · ⚠️ Pendiente de verificar en una Mac con dispositivos reales |
 | Paso 3a | Ruteo de grupos en el core: `AudioRouter`, activación/desactivación, reconstrucción por hotplug y membresía, recuperación tras cierre abrupto (`app_state`), 53 tests con mocks. ADR-07 aceptado | ✅ Tests en CTest (Linux) · ⚠️ sin router real todavía |
 | Paso 3b | `router_coreaudio.cpp` (Aggregate Device) + transporte y filtro de agregados propios en el HAL | ✅ Compila en CI · ⚠️ sin probar con hardware real (requiere Mac) |
-| Paso 3c | Bridge + UI ("Usar como salida") | Pendiente |
+| Paso 3c | Bridge (`sb_activate/deactivate_group_output`, `is_output`) + UI (botón ▶︎/■ "Usar como salida" en `GroupRowView`) | ✅ Tests del bridge (Linux) y compila en CI · ⚠️ sin probar con hardware real (requiere Mac) |
 | Paso 3d | Docs + pruebas manuales en Mac | Pendiente |
 | Paso 4 | Volumen relativo por miembro (US-03) | Pendiente |
 
