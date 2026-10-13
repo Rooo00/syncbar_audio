@@ -70,9 +70,12 @@ if(APPLE)
     # CoreAudio + AudioToolbox para el HAL de macOS
     find_library(COREAUDIO_LIB CoreAudio REQUIRED)
     find_library(AUDIOTOOLBOX_LIB AudioToolbox REQUIRED)
+    # CoreFoundation: hal_coreaudio.cpp usa CFString/CFRelease
+    find_library(COREFOUNDATION_LIB CoreFoundation REQUIRED)
     target_link_libraries(syncbar_core PRIVATE
         ${COREAUDIO_LIB}
         ${AUDIOTOOLBOX_LIB}
+        ${COREFOUNDATION_LIB}
     )
 elseif(WIN32)
     # WASAPI vive en ole32 y mmdevapi
