@@ -35,7 +35,7 @@
 - **Desconexión de dispositivo:** Queda como inactivo (is_active = false), se reactiva al reconectarse
 - **Personas:** Melómanos casuales y usuarios del día a día (Andrés y Sofía)
 - **Nombre del proyecto macOS:** SyncBarAudio (renombrado de AudioSyncPro; la copia antigua se eliminó en la limpieza de octubre 2026)
-- **Ruteo de audio de grupos:** ADR-07 propuesto (Aggregate Device multi-salida) — pendiente de implementación
+- **Ruteo de audio de grupos:** ADR-07 aceptado (Aggregate Device multi-salida, un grupo activo a la vez, recuperación tras cierre abrupto). RNF-01 debe reformularse en el SRS (ver ADR-07)
 - **Repositorio:** `.gitignore` agregado; artefactos de `build/` y `.DS_Store` fuera del control de versiones
 
 ---
@@ -121,7 +121,10 @@ sync-bar-audio/
 |------|-----------|--------|
 | Paso 1 | Debounce con temporizador (US-04), errores de volumen del HAL + "Sin control de volumen" (US-02/US-11), hotplug sin avisos repetidos y fuera del lock (US-01/US-05), SQLite de `vendor/` dentro del core, sin permiso de micrófono | ✅ Tests en CTest (Linux) y CI · ⚠️ Pendiente de verificar en una Mac con dispositivos reales |
 | Paso 2 | Interfaz `AudioHal` (CoreAudio / nulo / mock), reconciliación única para `init()` y hotplug, rechazos de mute (`SB_ERR_HAL_FAILURE`), 36 tests nuevos con `MockAudioHal` | ✅ Tests en CTest (Linux) y CI · ⚠️ Pendiente de verificar en una Mac con dispositivos reales |
-| Paso 3 | Ruteo de grupos (ADR-07 fase 1) | Pendiente |
+| Paso 3a | Ruteo de grupos en el core: `AudioRouter`, activación/desactivación, reconstrucción por hotplug y membresía, recuperación tras cierre abrupto (`app_state`), 53 tests con mocks. ADR-07 aceptado | ✅ Tests en CTest (Linux) · ⚠️ sin router real todavía |
+| Paso 3b | `router_coreaudio.cpp` (Aggregate Device) | Pendiente |
+| Paso 3c | Bridge + UI ("Usar como salida") | Pendiente |
+| Paso 3d | Docs + pruebas manuales en Mac | Pendiente |
 | Paso 4 | Volumen relativo por miembro (US-03) | Pendiente |
 
 ---

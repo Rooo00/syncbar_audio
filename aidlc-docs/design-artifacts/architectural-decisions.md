@@ -113,7 +113,7 @@ Iteración 1: Core C++ + Bridge + UI macOS. Iteración 2: UI Windows.
 
 ## ADR-07: Estrategia de ruteo de audio para grupos virtuales
 
-**Estado:** Propuesto  
+**Estado:** Aceptado (octubre 2026)  
 **Fecha:** Octubre 2026
 
 **Contexto:**  
@@ -145,3 +145,18 @@ En Windows no existe equivalente a los Aggregate Devices; la Iteración 2 requer
 - ⚠️ Los dispositivos Bluetooth (150–300 ms de latencia) quedarán desfasados respecto a salidas cableadas en la Fase 1
 - ⚠️ El requisito "latencia ≤ 10 ms en grupos virtuales" no es alcanzable con Bluetooth bajo ninguna opción; debe reformularse en el SRS (p. ej. "deriva acotada entre miembros" y "retraso ajustable por dispositivo")
 - ⚠️ La app pasa a modificar la salida por defecto del sistema; debe restaurarla de forma robusta
+
+**Decisiones de implementación (octubre 2026):**
+- Un solo grupo activo como salida a la vez; activar otro reemplaza al anterior y conserva la salida previa original.
+- Se puede activar con un solo miembro conectado. Si el grupo se queda sin miembros conectados, se desactiva solo y restaura la salida previa.
+- La salida previa se guarda en SQLite (`app_state.previous_default_output`) mientras el grupo está activo. Si la app se cierra de golpe, el siguiente `init()` la restaura (si sigue conectada) y borra la clave.
+- Reloj maestro: el primer miembro conectado por orden de preferencia de transporte (interno → USB → HDMI → otro/desconocido → Bluetooth).
+- La salida se reconstruye cuando cambia el conjunto de miembros conectados (hotplug o edición del grupo).
+
+**Nota sobre RNF-01:** con un Aggregate Device la app no procesa buffers (lo hace CoreAudio), así que no introduce latencia propia medible; pero el desfase entre miembros cableados y Bluetooth (150–300 ms) hace que el objetivo del requisito no se cumpla en la práctica. Se propone reformular RNF-01 en el SRS como "deriva acotada entre miembros" y, en una fase 2, "retraso ajustable por dispositivo". El SRS (`Requerimientos.docx` / `.pdf`) no se ha modificado.
+
+**Estado de implementación:**
+- 3a ✅ Interfaz `AudioRouter`, lógica en `AudioEngine`, `app_state`, `MockAudioRouter` y tests (`test_engine_routing`).
+- 3b ⏳ `router_coreaudio.cpp` (Aggregate Device). Mientras tanto, todas las plataformas usan `router_null.cpp` y la activación devuelve `RoutingFailure`.
+- 3c ⏳ Bridge (`sb_activate_group_output`, `is_output`) y UI.
+- 3d ⏳ Documentación y pruebas manuales en una Mac.

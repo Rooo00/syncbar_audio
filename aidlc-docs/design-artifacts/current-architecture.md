@@ -60,7 +60,8 @@ core/
   CMakeLists.txt                Targets: sqlite3, syncbar_core, tests (Debug)
   include/
     audio_engine.h              Clase AudioEngine + DeviceInfo/GroupInfo/MemberInfo
-    audio_hal.h                 Interfaz AudioHal + HalDevice/HalResult
+    audio_hal.h                 Interfaz AudioHal + HalDevice/HalResult/HalTransport
+    audio_router.h              Interfaz AudioRouter (salida de grupo + salida por defecto)
     audio_logic.h               Namespace AudioLogic (header-only)
     bridge_api.h                C-API pública (SB_*)
     database_mgr.h              Clase DatabaseManager + *Record
@@ -68,10 +69,12 @@ core/
     audio_engine.cpp            Estado + grupos + reconciliación con el HAL (sin código de plataforma)
     hal_coreaudio.cpp           AudioHal sobre CoreAudio (solo macOS)
     hal_null.cpp                AudioHal sin dispositivos (resto de plataformas, hasta WASAPI)
+    router_null.cpp             AudioRouter que no puede rutear (todas las plataformas hasta 3b)
     bridge_api.cpp              Implementación de la C-API
     database_mgr.cpp            Schema, CRUD, triggers, debounce
   tests/                        test_audio_logic / test_audio_engine / test_database_mgr / test_bridge_api /
-                                test_engine_hal + mock_audio_hal.h (AudioEngine con HAL simulado)
+                                test_engine_hal + mock_audio_hal.h (AudioEngine con HAL simulado) /
+                                test_engine_routing + mock_audio_router.h (ruteo de grupos)
   vendor/sqlite3.{c,h}
 macos/
   SyncBarAudio/                 Proyecto Xcode
@@ -114,10 +117,18 @@ Patrón **pImpl** (`AudioEngine::Impl`, privado). El motor no contiene código d
 - **Avisos de cambio** (`Impl::handleHardwareChange`): pide la lista al HAL fuera del lock, reconcilia con `stateMutex` tomado y llama a `onConnect`/`onDisconnect` **después** de soltarlo, solo para dispositivos nuevos, reconectados o desconectados.
 - **Operaciones** (devuelven `AudioEngine::Result`): dispositivos (`setDeviceVolume/Mute/Label`) y grupos (`create`, `addDevice`, `removeDevice`, `setGroupVolume`, `setGroupMute`, `setGroupName`, `delete`). Si el HAL devuelve `Rejected`, `setDeviceVolume` y `setDeviceMute` devuelven `HalFailure` sin cambiar el estado; con `NoDevice` (desconectado) el valor solo se guarda.
 
+- **Ruteo de grupos** (ADR-07): `AudioEngine` recibe además un `AudioRouter` (`createPlatformAudioRouter()` por defecto; hoy un router nulo en todas las plataformas hasta el sub-paso 3b).
+  - `activateGroupOutput(id)`: arma la salida con los miembros conectados, elige el reloj por transporte (interno → USB → HDMI → otro → Bluetooth), guarda la salida previa (en memoria y en `app_state`), crea la salida del grupo y la pone como salida del sistema. Solo un grupo a la vez. Errores: `GroupNotFound`, `NoActiveMembers`, `RoutingFailure` (el estado no cambia).
+  - `deactivateGroupOutput()`: restaura la salida previa si sigue conectada y destruye la del grupo.
+  - Tras cada aviso del HAL y cada cambio de membresía (`add/removeDeviceFromGroup`, `deleteGroup`), `syncRouting()` reconstruye la salida si cambió el conjunto de miembros conectados, o la desactiva si el grupo ya no existe o no tiene miembros.
+  - Concurrencia: las llamadas al router se hacen sin `stateMutex` y serializadas por `routingMutex` (orden routing → state). Si llega un aviso mientras otro hilo rutea, se marca como pendiente y lo procesa ese hilo.
+  - `GroupInfo.is_output` y `getOutputGroupId()` exponen el grupo activo.
+
 **Secuencia de `init()`:**
 1. Carga `devices`, `virtual_groups` y `group_devices` desde SQLite (todo inactivo).
 2. Pide al HAL la lista actual y la reconcilia (sin avisar a la UI). Los dispositivos guardados como activos que ya no están se marcan inactivos también en SQLite.
-3. Llama a `startWatching()` del HAL.
+3. Si `app_state` tiene una salida previa (la app se cerró con un grupo activo), la restaura si sigue conectada y borra la clave.
+4. Llama a `startWatching()` del HAL.
 
 **Semántica de grupos:**
 - `setGroupVolume` calcula `master × relativo` y lo escribe en el hardware de cada miembro activo (si el grupo no está muteado).
@@ -135,6 +146,7 @@ pImpl sobre `sqlite3*`, con un wrapper RAII `Stmt` para sentencias preparadas.
 | `devices` | `device_uid` | `custom_name`, `saved_volume`, `is_muted`, `is_active` |
 | `virtual_groups` | `id` (autoincrement) | `name`, `master_volume`, `is_muted`, `is_active` |
 | `group_devices` | (`group_id`, `device_uid`) | `relative_volume`, `is_active` — FKs con `ON DELETE CASCADE` |
+| `app_state` | `key` | `value` — estado de la app; hoy `previous_default_output` (ADR-07) |
 
 Triggers:
 - `trg_max_devices_per_group` — aborta con `GROUP_DEVICE_LIMIT_EXCEEDED` al insertar un quinto miembro.
