@@ -13,6 +13,12 @@
 // por otra estrategia (Process Tap, WASAPI loopback) sin tocar el motor.
 
 /**
+ * Prefijo del UID de las salidas de grupo que crea la app. AudioHal oculta los
+ * dispositivos con este prefijo para que no aparezcan como dispositivos.
+ */
+inline constexpr const char* kGroupOutputUidPrefix = "com.syncbar.group.";
+
+/**
  * Descripción del dispositivo de salida de un grupo.
  */
 struct GroupOutputSpec {
@@ -42,7 +48,7 @@ public:
 };
 
 /**
- * Router de la plataforma actual. Fuera de macOS (y hasta la Iteración 2) es un
- * router nulo: no puede crear salidas de grupo.
+ * Router de la plataforma actual: Aggregate Device en macOS; fuera de macOS
+ * (hasta la Iteración 2) un router nulo que no puede crear salidas de grupo.
  */
 std::unique_ptr<AudioRouter> createPlatformAudioRouter();

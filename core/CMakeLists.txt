@@ -33,8 +33,12 @@ set(CORE_SOURCES
     src/bridge_api.cpp
 )
 
-# Ruteo de grupos (AudioRouter): nulo en todas las plataformas hasta el sub-paso 3b
-list(APPEND CORE_SOURCES src/router_null.cpp)
+# Ruteo de grupos (AudioRouter): Aggregate Device en macOS; nulo en el resto
+if(APPLE)
+    list(APPEND CORE_SOURCES src/router_coreaudio.cpp)
+else()
+    list(APPEND CORE_SOURCES src/router_null.cpp)
+endif()
 
 # HAL por plataforma (AudioHal): CoreAudio en macOS; nulo en el resto hasta WASAPI
 if(APPLE)
