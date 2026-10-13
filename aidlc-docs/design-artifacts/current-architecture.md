@@ -69,7 +69,8 @@ core/
     audio_engine.cpp            Estado + grupos + reconciliación con el HAL (sin código de plataforma)
     hal_coreaudio.cpp           AudioHal sobre CoreAudio (solo macOS)
     hal_null.cpp                AudioHal sin dispositivos (resto de plataformas, hasta WASAPI)
-    router_null.cpp             AudioRouter que no puede rutear (todas las plataformas hasta 3b)
+    router_coreaudio.cpp        AudioRouter sobre CoreAudio: Aggregate Device privado y stacked (solo macOS)
+    router_null.cpp             AudioRouter que no puede rutear (resto de plataformas)
     bridge_api.cpp              Implementación de la C-API
     database_mgr.cpp            Schema, CRUD, triggers, debounce
   tests/                        test_audio_logic / test_audio_engine / test_database_mgr / test_bridge_api /
@@ -117,7 +118,8 @@ Patrón **pImpl** (`AudioEngine::Impl`, privado). El motor no contiene código d
 - **Avisos de cambio** (`Impl::handleHardwareChange`): pide la lista al HAL fuera del lock, reconcilia con `stateMutex` tomado y llama a `onConnect`/`onDisconnect` **después** de soltarlo, solo para dispositivos nuevos, reconectados o desconectados.
 - **Operaciones** (devuelven `AudioEngine::Result`): dispositivos (`setDeviceVolume/Mute/Label`) y grupos (`create`, `addDevice`, `removeDevice`, `setGroupVolume`, `setGroupMute`, `setGroupName`, `delete`). Si el HAL devuelve `Rejected`, `setDeviceVolume` y `setDeviceMute` devuelven `HalFailure` sin cambiar el estado; con `NoDevice` (desconectado) el valor solo se guarda.
 
-- **Ruteo de grupos** (ADR-07): `AudioEngine` recibe además un `AudioRouter` (`createPlatformAudioRouter()` por defecto; hoy un router nulo en todas las plataformas hasta el sub-paso 3b).
+- **Ruteo de grupos** (ADR-07): `AudioEngine` recibe además un `AudioRouter` (`createPlatformAudioRouter()` por defecto: `CoreAudioRouter` en macOS, router nulo en el resto).
+  - `CoreAudioRouter` (`router_coreaudio.cpp`): crea un Aggregate Device privado (solo visible para la app, desaparece con el proceso) y *stacked* (multi-salida), con el reloj como subdispositivo principal y drift compensation en el resto; cambia `kAudioHardwarePropertyDefaultOutputDevice`. Los UID de estas salidas empiezan por `com.syncbar.group.` y `CoreAudioHal` los oculta de la lista de dispositivos. `CoreAudioHal` también informa el transporte (`kAudioDevicePropertyTransportType`).
   - `activateGroupOutput(id)`: arma la salida con los miembros conectados, elige el reloj por transporte (interno → USB → HDMI → otro → Bluetooth), guarda la salida previa (en memoria y en `app_state`), crea la salida del grupo y la pone como salida del sistema. Solo un grupo a la vez. Errores: `GroupNotFound`, `NoActiveMembers`, `RoutingFailure` (el estado no cambia).
   - `deactivateGroupOutput()`: restaura la salida previa si sigue conectada y destruye la del grupo.
   - Tras cada aviso del HAL y cada cambio de membresía (`add/removeDeviceFromGroup`, `deleteGroup`), `syncRouting()` reconstruye la salida si cambió el conjunto de miembros conectados, o la desactiva si el grupo ya no existe o no tiene miembros.

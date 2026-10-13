@@ -157,6 +157,6 @@ En Windows no existe equivalente a los Aggregate Devices; la Iteración 2 requer
 
 **Estado de implementación:**
 - 3a ✅ Interfaz `AudioRouter`, lógica en `AudioEngine`, `app_state`, `MockAudioRouter` y tests (`test_engine_routing`).
-- 3b ⏳ `router_coreaudio.cpp` (Aggregate Device). Mientras tanto, todas las plataformas usan `router_null.cpp` y la activación devuelve `RoutingFailure`.
+- 3b ✅ (compila en CI; sin probar con hardware) `router_coreaudio.cpp`: `AudioHardwareCreateAggregateDevice` con `private=1`, `stacked=1`, reloj en `kAudioAggregateDeviceMainSubDeviceKey` y drift compensation en el resto de subdispositivos; salida por defecto con `kAudioHardwarePropertyDefaultOutputDevice`; UID → dispositivo con `kAudioHardwarePropertyTranslateUIDToDevice`. El HAL informa el transporte (`kAudioDevicePropertyTransportType`) y oculta los agregados propios (UID con prefijo `com.syncbar.group.`). Fuera de macOS sigue `router_null.cpp`.
 - 3c ⏳ Bridge (`sb_activate_group_output`, `is_output`) y UI.
 - 3d ⏳ Documentación y pruebas manuales en una Mac.

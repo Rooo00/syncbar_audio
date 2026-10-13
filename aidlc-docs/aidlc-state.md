@@ -122,7 +122,7 @@ sync-bar-audio/
 | Paso 1 | Debounce con temporizador (US-04), errores de volumen del HAL + "Sin control de volumen" (US-02/US-11), hotplug sin avisos repetidos y fuera del lock (US-01/US-05), SQLite de `vendor/` dentro del core, sin permiso de micrófono | ✅ Tests en CTest (Linux) y CI · ⚠️ Pendiente de verificar en una Mac con dispositivos reales |
 | Paso 2 | Interfaz `AudioHal` (CoreAudio / nulo / mock), reconciliación única para `init()` y hotplug, rechazos de mute (`SB_ERR_HAL_FAILURE`), 36 tests nuevos con `MockAudioHal` | ✅ Tests en CTest (Linux) y CI · ⚠️ Pendiente de verificar en una Mac con dispositivos reales |
 | Paso 3a | Ruteo de grupos en el core: `AudioRouter`, activación/desactivación, reconstrucción por hotplug y membresía, recuperación tras cierre abrupto (`app_state`), 53 tests con mocks. ADR-07 aceptado | ✅ Tests en CTest (Linux) · ⚠️ sin router real todavía |
-| Paso 3b | `router_coreaudio.cpp` (Aggregate Device) | Pendiente |
+| Paso 3b | `router_coreaudio.cpp` (Aggregate Device) + transporte y filtro de agregados propios en el HAL | ✅ Compila en CI · ⚠️ sin probar con hardware real (requiere Mac) |
 | Paso 3c | Bridge + UI ("Usar como salida") | Pendiente |
 | Paso 3d | Docs + pruebas manuales en Mac | Pendiente |
 | Paso 4 | Volumen relativo por miembro (US-03) | Pendiente |
