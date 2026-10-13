@@ -44,7 +44,7 @@ Verifica contra el código real, no contra los documentos:
 - **Core:** `core/include/*.h`, `core/src/audio_engine.cpp` (estado + grupos + reconciliación
   con el HAL), `audio_hal.h` + `hal_coreaudio.cpp` / `hal_null.cpp` (acceso al hardware),
   `database_mgr.cpp` (schema, triggers, debounce), `bridge_api.cpp` (C-API `sb_*`),
-  `audio_router.h` + `router_null.cpp` (ruteo de grupos), `audio_logic.h` (matemáticas de
+  `audio_router.h` + `router_coreaudio.cpp` / `router_null.cpp` (ruteo de grupos), `audio_logic.h` (matemáticas de
   volumen), tests en `core/tests/` (`mock_audio_hal.h` y `mock_audio_router.h` para probar el
   motor sin hardware).
 - **App macOS:** `macos/SyncBarAudio/SyncBarAudio/CoreBridge/AudioViewModel.swift` (único

@@ -1,8 +1,8 @@
 // ── Router nulo ───────────────────────────────────────────────────────────────
 //
 // AudioRouter para plataformas sin ruteo todavía (Windows hasta la Iteración 2,
-// y por ahora también macOS hasta el sub-paso 3b). No puede crear salidas de
-// grupo: AudioEngine::activateGroupOutput devuelve RoutingFailure.
+// y Linux para compilar y probar el core). No puede crear salidas de grupo:
+// AudioEngine::activateGroupOutput devuelve RoutingFailure.
 
 #include "audio_router.h"
 

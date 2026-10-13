@@ -6,6 +6,7 @@
 
 #include "audio_hal.h"
 #include "audio_logic.h"
+#include "audio_router.h"
 
 #include <CoreAudio/CoreAudio.h>
 #include <AudioToolbox/AudioServices.h>
@@ -217,6 +218,29 @@ static bool setMute(AudioDeviceID deviceId, bool muted) {
     return err == noErr;
 }
 
+// Tipo de conexión (kAudioDevicePropertyTransportType)
+static HalTransport getTransport(AudioDeviceID deviceId) {
+    UInt32 transport = 0;
+    UInt32 size = sizeof(transport);
+    AudioObjectPropertyAddress addr {
+        kAudioDevicePropertyTransportType,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain
+    };
+    if (AudioObjectGetPropertyData(deviceId, &addr, 0, nullptr, &size, &transport) != noErr) {
+        return HalTransport::Unknown;
+    }
+    switch (transport) {
+        case kAudioDeviceTransportTypeBuiltIn:     return HalTransport::BuiltIn;
+        case kAudioDeviceTransportTypeUSB:         return HalTransport::USB;
+        case kAudioDeviceTransportTypeHDMI:
+        case kAudioDeviceTransportTypeDisplayPort: return HalTransport::HDMI;
+        case kAudioDeviceTransportTypeBluetooth:
+        case kAudioDeviceTransportTypeBluetoothLE: return HalTransport::Bluetooth;
+        default:                                   return HalTransport::Other;
+    }
+}
+
 } // namespace CoreAudioHAL
 
 class CoreAudioHal final : public AudioHal {
@@ -231,10 +255,13 @@ public:
             HalDevice d;
             d.uid = CoreAudioHAL::getUID(devId);
             if (d.uid.empty()) continue;
+            // Las salidas de grupo que crea la app no son dispositivos del usuario
+            if (d.uid.rfind(kGroupOutputUidPrefix, 0) == 0) continue;
             d.name               = CoreAudioHAL::getName(devId);
             d.has_volume_control = CoreAudioHAL::hasVolumeControl(devId);
             d.volume_valid       = CoreAudioHAL::getVolume(devId, d.volume);
             d.muted              = CoreAudioHAL::getMute(devId);
+            d.transport          = CoreAudioHAL::getTransport(devId);
             ids[d.uid] = devId;
             result.push_back(std::move(d));
         }
