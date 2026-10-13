@@ -292,11 +292,24 @@ private struct MemberRowView: View {
 
             Spacer()
 
-            // Volumen relativo del miembro
+            // Volumen relativo del miembro (US-03)
+            Slider(
+                value: Binding(
+                    get: { Double(member.relativeVolume) },
+                    set: { vm.setMemberVolume(groupId: groupId, uid: member.id,
+                                              relativeVolume: Float($0)) }
+                ),
+                in: 0...1
+            )
+            .controlSize(.mini)
+            .frame(width: 80)
+            .help("Volumen relativo dentro del grupo")
+
             Text("\(Int(member.relativeVolume * 100))%")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
+                .frame(width: 32, alignment: .trailing)
 
             // Botón de quitar del grupo
             Button {

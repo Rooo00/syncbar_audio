@@ -227,6 +227,17 @@ SB_API SB_Result sb_remove_device_from_group(int32_t group_id, const char* devic
 SB_API SB_Result sb_set_group_volume(int32_t group_id, float master_volume);
 
 /**
+ * Cambia el balance de un miembro dentro del grupo (US-03): su volumen
+ * efectivo es master_volume × relative_volume. Si el grupo no está muteado,
+ * se aplica al hardware de inmediato. Persistencia con debounce de 300 ms.
+ * @param relative_volume [0.0 – 1.0]
+ * @return SB_OK | SB_ERR_GROUP_NOT_FOUND | SB_ERR_DEVICE_NOT_FOUND (no es miembro) |
+ *         SB_ERR_INVALID_VOLUME | SB_ERR_HAL_FAILURE (el hardware lo rechazó)
+ */
+SB_API SB_Result sb_set_member_volume(int32_t group_id, const char* device_uid,
+                                      float relative_volume);
+
+/**
  * Establece el mute lógico del grupo.
  * NO modifica el hardware de los dispositivos miembros (ADR-03).
  * @return SB_OK | SB_ERR_GROUP_NOT_FOUND

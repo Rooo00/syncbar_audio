@@ -125,7 +125,7 @@ sync-bar-audio/
 | Paso 3b | `router_coreaudio.cpp` (Aggregate Device) + transporte y filtro de agregados propios en el HAL | ✅ Compila en CI · ⚠️ sin probar con hardware real (requiere Mac) |
 | Paso 3c | Bridge (`sb_activate/deactivate_group_output`, `is_output`) + UI (botón ▶︎/■ "Usar como salida" en `GroupRowView`) | ✅ Tests del bridge (Linux) y compila en CI · ⚠️ sin probar con hardware real (requiere Mac) |
 | Paso 3d | Docs + pruebas manuales en Mac | Pendiente |
-| Paso 4 | Volumen relativo por miembro (US-03) | Pendiente |
+| Paso 4 | Volumen relativo por miembro (US-03, US-13) | ✅ core + bridge + ViewModel + slider en `MemberRowView`; tests H8–H12 y T12. Curva perceptual fuera de alcance. Sin verificar en hardware real |
 
 ---
 

@@ -52,8 +52,7 @@ Verifica contra el código real, no contra los documentos:
 - Una función solo está "hecha" si recorre **toda la cadena**:
   `AudioEngine` → `sb_*` en `bridge_api.h/.cpp` → método en `AudioViewModel` → control
   alcanzable desde `PopoverView`. Busca con `grep` cada eslabón. Ejemplos de huecos ya
-  encontrados: `relative_volume` existe en schema/engine pero no hay `sb_*` ni UI para
-  cambiarlo; `applyVolumeCurve`/`volumeToSlider` solo se usan en tests; los grupos ajustan
+  encontrados: `applyVolumeCurve`/`volumeToSlider` solo se usan en tests; los grupos ajustan
   volumen pero no rutean audio (ADR-07).
 - Para búsquedas amplias usa el subagente Explore para no llenar el contexto.
 

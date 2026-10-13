@@ -176,6 +176,13 @@ SB_Result sb_remove_device_from_group(int32_t group_id, const char* device_uid);
  * Returns: SB_OK, SB_ERR_GROUP_NOT_FOUND, SB_ERR_INVALID_VOLUME */
 SB_Result sb_set_group_volume(int32_t group_id, float master_volume);
 
+/* Establece el volumen relativo de un miembro [0.0 – 1.0].
+ * Si el grupo no está muteado y el dispositivo está conectado, aplica
+ * master_volume * relative_volume al hardware.
+ * Returns: SB_OK, SB_ERR_GROUP_NOT_FOUND, SB_ERR_DEVICE_NOT_FOUND (uid nulo o
+ *          no es miembro), SB_ERR_INVALID_VOLUME, SB_ERR_HAL_FAILURE */
+SB_Result sb_set_member_volume(int32_t group_id, const char* device_uid, float relative_volume);
+
 /* Establece el mute lógico del grupo (NO modifica el hardware de los miembros).
  * Returns: SB_OK, SB_ERR_GROUP_NOT_FOUND */
 SB_Result sb_set_group_mute(int32_t group_id, bool muted);

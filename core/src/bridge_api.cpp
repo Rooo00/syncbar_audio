@@ -288,6 +288,13 @@ SB_Result sb_remove_device_from_group(int32_t group_id, const char* device_uid) 
     return toSBResult(g_engine->removeDeviceFromGroup(group_id, device_uid));
 }
 
+SB_Result sb_set_member_volume(int32_t group_id, const char* device_uid,
+                               float relative_volume) {
+    if (!g_engine) return SB_ERR_NOT_INITIALIZED;
+    if (!device_uid) return SB_ERR_DEVICE_NOT_FOUND;
+    return toSBResult(g_engine->setMemberVolume(group_id, device_uid, relative_volume));
+}
+
 SB_Result sb_set_group_volume(int32_t group_id, float master_volume) {
     if (!g_engine) return SB_ERR_NOT_INITIALIZED;
     return toSBResult(g_engine->setGroupVolume(group_id, master_volume));

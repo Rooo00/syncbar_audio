@@ -533,6 +533,61 @@ AudioEngine::Result AudioEngine::setDeviceVolume(const std::string& uid, float v
         rec.is_active    = ds->is_active;
         impl_->db->upsertDevice(rec, /*immediate=*/false);
     }
+
+    // Si el dispositivo pertenece a grupos, su slider individual redefine su
+    // balance: relativo = volumen / maestro. Así el siguiente movimiento del
+    // slider maestro respeta el nivel que el usuario acaba de elegir (US-03).
+    for (auto& [gid, g] : impl_->groups) {
+        for (auto& m : g.members) {
+            if (m.device_uid != uid) continue;
+            m.relative_volume = AudioLogic::computeRelativeVolume(newVolume, g.master_volume);
+            if (impl_->db) {
+                impl_->db->updateMemberVolume(gid, uid, m.relative_volume,
+                                              /*immediate=*/false);
+            }
+        }
+    }
+    return Result::OK;
+}
+
+AudioEngine::Result AudioEngine::setMemberVolume(int32_t groupId,
+                                                  const std::string& uid,
+                                                  float relativeVolume) {
+    if (!impl_->initialized) return Result::NotInitialized;
+    if (relativeVolume < 0.0f || relativeVolume > 1.0f) return Result::InvalidVolume;
+
+    std::lock_guard<std::mutex> lock(impl_->stateMutex);
+    auto* gs = impl_->findGroup(groupId);
+    if (!gs) return Result::GroupNotFound;
+    auto it = std::find_if(gs->members.begin(), gs->members.end(),
+                           [&uid](const MemberState& m) { return m.device_uid == uid; });
+    if (it == gs->members.end()) return Result::DeviceNotFound;
+
+    const float relative = AudioLogic::clampVolume(relativeVolume);
+    auto* ds = impl_->findDevice(uid);
+
+    // Igual que setGroupVolume: con el grupo muteado (lógico, ADR-03) no se
+    // toca el hardware; solo cambia el balance guardado.
+    if (ds && !gs->is_muted) {
+        const float effective =
+            AudioLogic::distributeGroupVolume(gs->master_volume, {relative}).front();
+        if (impl_->halSetVolume(*ds, effective) == HalResult::Rejected) {
+            return Result::HalFailure;
+        }
+        ds->volume = effective;
+        if (impl_->db) {
+            DeviceRecord rec;
+            rec.device_uid   = ds->uid;
+            rec.custom_name  = ds->custom_name;
+            rec.saved_volume = ds->volume;
+            rec.is_muted     = ds->is_muted;
+            rec.is_active    = ds->is_active;
+            impl_->db->upsertDevice(rec, /*immediate=*/false);
+        }
+    }
+
+    it->relative_volume = relative;
+    if (impl_->db) impl_->db->updateMemberVolume(groupId, uid, relative, /*immediate=*/false);
     return Result::OK;
 }
 

@@ -7,6 +7,7 @@
 #include <thread>
 #include <unordered_map>
 #include <stdexcept>
+#include <string>
 #include <cstring>
 
 // ── Helpers internos ──────────────────────────────────────────────────────────
@@ -54,7 +55,21 @@ struct DatabaseManager::Impl {
         TimePoint    timestamp;
     };
     std::unordered_map<std::string, PendingWrite> pendingDevices;
-    std::mutex                                    pendingMutex;
+
+    // Debounce del volumen relativo de miembros (slider de miembro, RF-03)
+    struct PendingMember {
+        int32_t     group_id;
+        std::string device_uid;
+        float       relative_volume;
+        TimePoint   timestamp;
+    };
+    std::unordered_map<std::string, PendingMember> pendingMembers;  // "gid|uid" → pendiente
+
+    std::mutex pendingMutex;
+
+    static std::string memberKey(int32_t groupId, const std::string& uid) {
+        return std::to_string(groupId) + "|" + uid;
+    }
 
     static constexpr auto kDebounceMs = std::chrono::milliseconds(300);
 
@@ -67,7 +82,7 @@ struct DatabaseManager::Impl {
     void flusherLoop() {
         std::unique_lock<std::mutex> lock(pendingMutex);
         while (!stopFlusher) {
-            if (pendingDevices.empty()) {
+            if (pendingDevices.empty() && pendingMembers.empty()) {
                 flushCv.wait(lock);
                 continue;
             }
@@ -79,6 +94,17 @@ struct DatabaseManager::Impl {
                 if (due <= now) {
                     writeDevice(it->second.record);
                     it = pendingDevices.erase(it);
+                } else {
+                    if (due < next) next = due;
+                    ++it;
+                }
+            }
+            for (auto it = pendingMembers.begin(); it != pendingMembers.end(); ) {
+                auto due = it->second.timestamp + kDebounceMs;
+                if (due <= now) {
+                    writeMemberVolume(it->second.group_id, it->second.device_uid,
+                                      it->second.relative_volume);
+                    it = pendingMembers.erase(it);
                 } else {
                     if (due < next) next = due;
                     ++it;
@@ -103,6 +129,20 @@ struct DatabaseManager::Impl {
         }
         flushCv.notify_all();
         if (flusher.joinable()) flusher.join();
+    }
+
+    // Escribe el volumen relativo de un miembro directamente en SQLite
+    bool writeMemberVolume(int32_t groupId, const std::string& deviceUid,
+                           float relativeVolume) {
+        const char* sql =
+            "UPDATE group_devices SET relative_volume = ? "
+            "WHERE group_id = ? AND device_uid = ?;";
+        Stmt stmt(db, sql);
+        if (!stmt.ok()) return false;
+        sqlite3_bind_double(stmt.s, 1, static_cast<double>(relativeVolume));
+        sqlite3_bind_int(stmt.s, 2, groupId);
+        sqlite3_bind_text(stmt.s, 3, deviceUid.c_str(), -1, SQLITE_TRANSIENT);
+        return sqlite3_step(stmt.s) == SQLITE_DONE;
     }
 
     // Escribe el DeviceRecord directamente en SQLite (sin debounce)
@@ -460,16 +500,17 @@ bool DatabaseManager::removeMember(int32_t groupId, const std::string& deviceUid
 
 bool DatabaseManager::updateMemberVolume(int32_t groupId,
                                          const std::string& deviceUid,
-                                         float relativeVolume) {
-    const char* sql =
-        "UPDATE group_devices SET relative_volume = ? "
-        "WHERE group_id = ? AND device_uid = ?;";
-    Stmt stmt(impl_->db, sql);
-    if (!stmt.ok()) return false;
-    sqlite3_bind_double(stmt.s, 1, static_cast<double>(relativeVolume));
-    sqlite3_bind_int(stmt.s, 2, groupId);
-    sqlite3_bind_text(stmt.s, 3, deviceUid.c_str(), -1, SQLITE_TRANSIENT);
-    return sqlite3_step(stmt.s) == SQLITE_DONE;
+                                         float relativeVolume,
+                                         bool immediate) {
+    std::lock_guard<std::mutex> lock(impl_->pendingMutex);
+    const std::string key = Impl::memberKey(groupId, deviceUid);
+    if (immediate) {
+        impl_->pendingMembers.erase(key);
+        return impl_->writeMemberVolume(groupId, deviceUid, relativeVolume);
+    }
+    impl_->pendingMembers[key] = { groupId, deviceUid, relativeVolume, Clock::now() };
+    impl_->flushCv.notify_one();
+    return true;
 }
 
 bool DatabaseManager::setMemberActive(int32_t groupId,
@@ -495,6 +536,11 @@ void DatabaseManager::flushPending() {
         impl_->writeDevice(pending.record);
     }
     impl_->pendingDevices.clear();
+    for (auto& [key, pending] : impl_->pendingMembers) {
+        impl_->writeMemberVolume(pending.group_id, pending.device_uid,
+                                 pending.relative_volume);
+    }
+    impl_->pendingMembers.clear();
 }
 
 // ── Estado de la app (clave/valor) ────────────────────────────────────────────
