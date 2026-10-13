@@ -120,7 +120,7 @@ sync-bar-audio/
 | Paso | Contenido | Estado |
 |------|-----------|--------|
 | Paso 1 | Debounce con temporizador (US-04), errores de volumen del HAL + "Sin control de volumen" (US-02/US-11), hotplug sin avisos repetidos y fuera del lock (US-01/US-05), SQLite de `vendor/` dentro del core, sin permiso de micrófono | ✅ Tests en CTest (Linux) y CI · ⚠️ Pendiente de verificar en una Mac con dispositivos reales |
-| Paso 2 | Separar el HAL detrás de una interfaz + mock | Pendiente |
+| Paso 2 | Interfaz `AudioHal` (CoreAudio / nulo / mock), reconciliación única para `init()` y hotplug, rechazos de mute (`SB_ERR_HAL_FAILURE`), 36 tests nuevos con `MockAudioHal` | ✅ Tests en CTest (Linux) y CI · ⚠️ Pendiente de verificar en una Mac con dispositivos reales |
 | Paso 3 | Ruteo de grupos (ADR-07 fase 1) | Pendiente |
 | Paso 4 | Volumen relativo por miembro (US-03) | Pendiente |
 

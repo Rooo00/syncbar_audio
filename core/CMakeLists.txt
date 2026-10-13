@@ -33,9 +33,17 @@ set(CORE_SOURCES
     src/bridge_api.cpp
 )
 
+# HAL por plataforma (AudioHal): CoreAudio en macOS; nulo en el resto hasta WASAPI
+if(APPLE)
+    list(APPEND CORE_SOURCES src/hal_coreaudio.cpp)
+else()
+    list(APPEND CORE_SOURCES src/hal_null.cpp)
+endif()
+
 set(CORE_HEADERS
     include/database_mgr.h
     include/audio_engine.h
+    include/audio_hal.h
     include/bridge_api.h
 )
 
@@ -62,9 +70,12 @@ if(APPLE)
     # CoreAudio + AudioToolbox para el HAL de macOS
     find_library(COREAUDIO_LIB CoreAudio REQUIRED)
     find_library(AUDIOTOOLBOX_LIB AudioToolbox REQUIRED)
+    # CoreFoundation: hal_coreaudio.cpp usa CFString/CFRelease
+    find_library(COREFOUNDATION_LIB CoreFoundation REQUIRED)
     target_link_libraries(syncbar_core PRIVATE
         ${COREAUDIO_LIB}
         ${AUDIOTOOLBOX_LIB}
+        ${COREFOUNDATION_LIB}
     )
 elseif(WIN32)
     # WASAPI vive en ole32 y mmdevapi
@@ -117,8 +128,13 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         target_link_libraries(test_bridge_api PRIVATE ${COREFOUNDATION_LIB})
     endif()
 
+    # AudioEngine contra un HAL simulado (sin hardware)
+    add_executable(test_engine_hal tests/test_engine_hal.cpp)
+    target_link_libraries(test_engine_hal PRIVATE syncbar_core)
+    target_include_directories(test_engine_hal PRIVATE include tests)
+
     # Registro en CTest: `ctest --test-dir build --output-on-failure`
-    foreach(t test_database_mgr test_audio_logic test_audio_engine test_bridge_api)
+    foreach(t test_database_mgr test_audio_logic test_audio_engine test_bridge_api test_engine_hal)
         add_test(NAME ${t} COMMAND ${t})
         set_tests_properties(${t} PROPERTIES TIMEOUT 60)
     endforeach()

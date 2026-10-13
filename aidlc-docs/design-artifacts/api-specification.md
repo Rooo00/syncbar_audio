@@ -120,7 +120,8 @@ SB_Result sb_get_devices(
 SB_Result sb_set_device_volume(const char* uid, float volume);
 
 /* Establece el estado de mute de un dispositivo individual.
- * Returns: SB_OK, SB_ERR_DEVICE_NOT_FOUND */
+ * Returns: SB_OK, SB_ERR_DEVICE_NOT_FOUND,
+ *          SB_ERR_HAL_FAILURE (el hardware rechazó el cambio; no se guarda) */
 SB_Result sb_set_device_mute(const char* uid, bool muted);
 
 /* Establece el nombre personalizado de un dispositivo.

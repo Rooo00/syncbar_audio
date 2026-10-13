@@ -21,7 +21,8 @@ La app está dividida en tres capas:
 │   Funciones sb_*  ·  structs POD  ·  estado global singleton │
 ├──────────────────────────────────────────────────────────────┤
 │ Core C++17 (libsyncbar_core.a)                               │
-│   AudioEngine ── estado en memoria + HAL CoreAudio           │
+│   AudioEngine ── estado en memoria + grupos + reconciliación │
+│   AudioHal    ── interfaz de hardware (CoreAudio / nulo)     │
 │   AudioLogic  ── matemáticas de volumen (header-only)        │
 │   DatabaseManager ── persistencia SQLite + debounce          │
 └──────────────────────────────────────────────────────────────┘
@@ -59,14 +60,18 @@ core/
   CMakeLists.txt                Targets: sqlite3, syncbar_core, tests (Debug)
   include/
     audio_engine.h              Clase AudioEngine + DeviceInfo/GroupInfo/MemberInfo
+    audio_hal.h                 Interfaz AudioHal + HalDevice/HalResult
     audio_logic.h               Namespace AudioLogic (header-only)
     bridge_api.h                C-API pública (SB_*)
     database_mgr.h              Clase DatabaseManager + *Record
   src/
-    audio_engine.cpp            HAL CoreAudio + estado + grupos + hotplug (867 líneas)
+    audio_engine.cpp            Estado + grupos + reconciliación con el HAL (sin código de plataforma)
+    hal_coreaudio.cpp           AudioHal sobre CoreAudio (solo macOS)
+    hal_null.cpp                AudioHal sin dispositivos (resto de plataformas, hasta WASAPI)
     bridge_api.cpp              Implementación de la C-API
     database_mgr.cpp            Schema, CRUD, triggers, debounce
-  tests/                        test_audio_logic / test_audio_engine / test_database_mgr / test_bridge_api
+  tests/                        test_audio_logic / test_audio_engine / test_database_mgr / test_bridge_api /
+                                test_engine_hal + mock_audio_hal.h (AudioEngine con HAL simulado)
   vendor/sqlite3.{c,h}
 macos/
   SyncBarAudio/                 Proyecto Xcode
@@ -91,27 +96,28 @@ Funciones puras, sin estado ni dependencias de plataforma:
 
 `computeRelativeVolume`, `applyVolumeCurve` y `volumeToSlider` solo se usan en tests; ni el engine ni la UI las llaman (los sliders son lineales).
 
-### 4.2 AudioEngine (`audio_engine.h/.cpp`)
+### 4.2 AudioEngine (`audio_engine.h/.cpp`) y AudioHal (`audio_hal.h`)
 
-Patrón **pImpl** (`AudioEngine::Impl`). Contiene:
+Patrón **pImpl** (`AudioEngine::Impl`, privado). El motor no contiene código de plataforma: recibe un `AudioHal` en el constructor (`AudioEngine()` usa `createPlatformAudioHal()`; los tests pasan un `MockAudioHal`). Contiene:
 
 - **Estado en memoria** (fuente de verdad en runtime):
   `unordered_map<uid, DeviceState>` y `unordered_map<id, GroupState>`; cada grupo guarda un `vector<MemberState>`.
-  Todo protegido por un único `std::mutex stateMutex`.
-- **HAL CoreAudio** (namespace `CoreAudioHAL`, bajo `#ifdef __APPLE__`):
-  - `enumerateOutputDevices` — `kAudioHardwarePropertyDevices` filtrado por `kAudioDevicePropertyStreamConfiguration` en scope de salida.
-  - `getUID` / `getName` — `kAudioDevicePropertyDeviceUID` / `DeviceNameCFString`. El UID es la clave persistente.
-  - `get/setVolume` — `kAudioHardwareServiceDeviceProperty_VirtualMainVolume`; si no está disponible, `kAudioDevicePropertyVolumeScalar` por canal (main, 1, 2). Ambas revisan el `OSStatus`.
-  - `hasVolumeControl` — indica si el dispositivo permite cambiar su volumen (HDMI/DisplayPort suelen no permitirlo); se expone como `has_volume_control`.
-  - `get/setMute` — `kAudioDevicePropertyMute`.
-- **Hotplug**: un listener sobre `kAudioHardwarePropertyDevices` en `kAudioObjectSystemObject`. En cada cambio vuelve a enumerar y, con `stateMutex` tomado, compara contra el mapa en memoria, marca altas/bajas/reconexiones y actualiza membresías y SQLite. Los callbacks `onConnect`/`onDisconnect` se invocan **después** de soltar el lock y solo para dispositivos nuevos, reconectados o desconectados.
-- **Operaciones** (devuelven `AudioEngine::Result`): dispositivos (`setDeviceVolume/Mute/Label`) y grupos (`create`, `addDevice`, `removeDevice`, `setGroupVolume`, `setGroupMute`, `setGroupName`, `delete`).
+  Todo protegido por un único `std::mutex stateMutex`. Los dispositivos se identifican solo por UID.
+- **`AudioHal`** (interfaz): `listOutputDevices()` → `vector<HalDevice>`, `setVolume/setMute(uid, …)` → `HalResult` (`Applied`, `NoDevice`, `Rejected`), `startWatching(callback)` / `stopWatching()`.
+  - **`CoreAudioHal`** (`hal_coreaudio.cpp`, macOS): traduce UID → `AudioDeviceID` con un mapa que se refresca en cada `listOutputDevices()`.
+    - Enumeración: `kAudioHardwarePropertyDevices` filtrado por `kAudioDevicePropertyStreamConfiguration` en scope de salida; UID y nombre con `kAudioDevicePropertyDeviceUID` / `DeviceNameCFString`.
+    - Volumen: `kAudioHardwareServiceDeviceProperty_VirtualMainVolume`; si no está disponible, `kAudioDevicePropertyVolumeScalar` por canal (main, 1, 2). `has_volume_control` indica si se puede cambiar (HDMI/DisplayPort suelen no permitirlo).
+    - Mute: `kAudioDevicePropertyMute`.
+    - Observación: listener sobre `kAudioHardwarePropertyDevices`; el callback se invoca fuera del mutex del HAL.
+  - **`NullAudioHal`** (`hal_null.cpp`): sin dispositivos; se usa fuera de macOS hasta que exista WASAPI.
+- **Reconciliación** (`Impl::reconcile`): una sola función, usada por `init()` y por los avisos del HAL, cruza la lista del hardware con el estado. Detecta altas, reconexiones (aplica nombre, volumen, mute y capacidad del hardware) y desconexiones; persiste en SQLite y recalcula las membresías de los grupos.
+- **Avisos de cambio** (`Impl::handleHardwareChange`): pide la lista al HAL fuera del lock, reconcilia con `stateMutex` tomado y llama a `onConnect`/`onDisconnect` **después** de soltarlo, solo para dispositivos nuevos, reconectados o desconectados.
+- **Operaciones** (devuelven `AudioEngine::Result`): dispositivos (`setDeviceVolume/Mute/Label`) y grupos (`create`, `addDevice`, `removeDevice`, `setGroupVolume`, `setGroupMute`, `setGroupName`, `delete`). Si el HAL devuelve `Rejected`, `setDeviceVolume` y `setDeviceMute` devuelven `HalFailure` sin cambiar el estado; con `NoDevice` (desconectado) el valor solo se guarda.
 
 **Secuencia de `init()`:**
 1. Carga `devices`, `virtual_groups` y `group_devices` desde SQLite (todo inactivo).
-2. Enumera el hardware, cruza por UID, toma volumen/mute reales del hardware y da de alta los dispositivos nuevos.
-3. Recalcula `is_active` de miembros y grupos.
-4. Registra el listener de hotplug.
+2. Pide al HAL la lista actual y la reconcilia (sin avisar a la UI). Los dispositivos guardados como activos que ya no están se marcan inactivos también en SQLite.
+3. Llama a `startWatching()` del HAL.
 
 **Semántica de grupos:**
 - `setGroupVolume` calcula `master × relativo` y lo escribe en el hardware de cada miembro activo (si el grupo no está muteado).
@@ -181,7 +187,7 @@ Triggers:
 `sb_set_group_volume` → `distributeGroupVolume` → `setVolume` en el HAL de cada miembro activo → upsert con debounce de cada dispositivo.
 
 **Conectar o desconectar un dispositivo**
-CoreAudio (hilo del HAL) → `hotplugListenerProc` → reenumera, actualiza el estado y SQLite bajo el lock → callback C → `DispatchQueue.main.async` → el ViewModel refresca.
+CoreAudio (hilo del sistema) → `CoreAudioHal::listenerProc` → `AudioEngine::Impl::handleHardwareChange` → `listOutputDevices()` → `reconcile` (estado + SQLite, con el lock) → callback C (sin el lock) → `DispatchQueue.main.async` → el ViewModel refresca dispositivos y grupos.
 
 ---
 
@@ -192,10 +198,10 @@ Hallazgos de la lectura del código, sin cambios aplicados:
 1. **No hay ruteo de audio.** Los grupos solo reparten volumen; no generan salida simultánea. Ver ADR-07.
 2. **Volumen relativo siempre en 1.0.** No hay API (`sb_set_member_volume` o similar) para ajustarlo, así que `distributeGroupVolume` siempre devuelve el volumen maestro.
 3. *(Resuelto en octubre 2026)* ~~El debounce no tiene temporizador.~~ Ahora un hilo escribe los pendientes a los 300 ms.
-4. *(Resuelto en octubre 2026, solo volumen)* ~~Errores del HAL ignorados.~~ El volumen revisa el `OSStatus`, usa `VolumeScalar` como respaldo y la UI marca los dispositivos sin control de volumen. Pendiente: `setMute` sigue sin informar rechazos del hardware, y el camino "rechazado" no tiene test hasta que exista el mock del HAL (Paso 2).
+4. *(Resuelto en octubre 2026, solo volumen)* ~~Errores del HAL ignorados.~~ El volumen revisa el `OSStatus`, usa `VolumeScalar` como respaldo y la UI marca los dispositivos sin control de volumen. Desde el Paso 2, `setMute` también informa rechazos y ambos caminos tienen tests con `MockAudioHal`.
 5. *(Resuelto en octubre 2026)* ~~El listener de hotplug avisaba de todos los dispositivos y con el lock tomado.~~ Ahora solo avisa de cambios reales, fuera del lock, y una reconexión también reactiva las membresías de grupo.
 6. **Estado global** en el bridge y en Swift (`g_engine`, `_sharedViewModel`): solo admite una instancia y complica los tests.
-7. **Un solo archivo concentra demasiado.** `audio_engine.cpp` mezcla HAL, estado, grupos y persistencia; no hay una interfaz de HAL que permita usar un mock.
+7. *(Resuelto en octubre 2026)* ~~No hay interfaz de HAL.~~ El hardware está detrás de `AudioHal` (CoreAudio / nulo / mock) y el motor no tiene código de plataforma. Sigue pendiente separar grupos y persistencia del estado si el motor crece (p. ej. con `AudioRouter`, ADR-07).
 8. *(Resuelto en octubre 2026)* ~~SQLite de `vendor/` no usado por la app.~~ Ahora va dentro de `libsyncbar_core.a`.
 9. **Windows es solo un stub.** `ole32`/`mmdevapi` se enlazan, pero no hay implementación ni carpeta `windows/`.
 10. **Infraestructura de calidad.** *(Resuelto en octubre 2026: `.gitignore`, se eliminaron `build/`, `.DS_Store` y `AudioSyncPro/`; tests en CTest; CI en GitHub Actions.)* Pendiente: los tests dependían de includes transitivos de libc++ (`<string>`, `<atomic>`), ya corregidos; el código no compila en plataformas distintas de macOS/Windows por `-Werror` en los stubs.

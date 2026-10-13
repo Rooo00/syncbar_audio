@@ -148,13 +148,16 @@ SB_API SB_Result sb_get_devices(
 /**
  * Establece el volumen de un dispositivo.
  * @param volume [0.0 – 1.0]. El núcleo convierte a dB para el HAL.
- * @return SB_OK | SB_ERR_DEVICE_NOT_FOUND | SB_ERR_INVALID_VOLUME
+ * Si el dispositivo está desconectado, el valor solo se guarda.
+ * @return SB_OK | SB_ERR_DEVICE_NOT_FOUND | SB_ERR_INVALID_VOLUME |
+ *         SB_ERR_HAL_FAILURE (el hardware rechazó el cambio; no se guarda)
  */
 SB_API SB_Result sb_set_device_volume(const char* uid, float volume);
 
 /**
  * Establece el estado de mute de un dispositivo individual.
- * @return SB_OK | SB_ERR_DEVICE_NOT_FOUND
+ * @return SB_OK | SB_ERR_DEVICE_NOT_FOUND |
+ *         SB_ERR_HAL_FAILURE (el hardware rechazó el cambio, p. ej. HDMI sin mute)
  */
 SB_API SB_Result sb_set_device_mute(const char* uid, bool muted);
 
