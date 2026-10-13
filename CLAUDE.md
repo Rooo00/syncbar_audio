@@ -44,8 +44,9 @@ Verifica contra el código real, no contra los documentos:
 - **Core:** `core/include/*.h`, `core/src/audio_engine.cpp` (estado + grupos + reconciliación
   con el HAL), `audio_hal.h` + `hal_coreaudio.cpp` / `hal_null.cpp` (acceso al hardware),
   `database_mgr.cpp` (schema, triggers, debounce), `bridge_api.cpp` (C-API `sb_*`),
-  `audio_logic.h` (matemáticas de volumen), tests en `core/tests/` (`mock_audio_hal.h` para
-  probar el motor sin hardware).
+  `audio_router.h` + `router_null.cpp` (ruteo de grupos), `audio_logic.h` (matemáticas de
+  volumen), tests en `core/tests/` (`mock_audio_hal.h` y `mock_audio_router.h` para probar el
+  motor sin hardware).
 - **App macOS:** `macos/SyncBarAudio/SyncBarAudio/CoreBridge/AudioViewModel.swift` (único
   ViewModel, llama `sb_*`) y `Views/` (`PopoverView` → `DeviceRowView` / `GroupRowView`).
 - Una función solo está "hecha" si recorre **toda la cadena**:
@@ -121,8 +122,9 @@ Un ítem solo se marca ✅ si cumple **todas** las capas que aplican:
     errores como `SB_Result` (nunca excepciones a través de la frontera C).
   - App: un `ObservableObject` (`AudioViewModel`) inyectado como `environmentObject`;
     los callbacks de CoreAudio llegan en otro hilo → `DispatchQueue.main.async`.
-  - Planeado (ADR-07): interfaz `AudioRouter` separada del estado, con mock para tests
-    (mismo patrón que `AudioHal`).
+  - Ruteo de grupos (ADR-07): solo a través de `AudioRouter` (inyectado en `AudioEngine`,
+    `MockAudioRouter` en tests). Al router se le llama sin `stateMutex`, serializado por
+    `routingMutex` (orden routing → state).
 - Trampas conocidas:
   - El core compila con `-Wall -Wextra -Wpedantic -Werror`: un warning rompe el build.
   - Incluye explícitamente cada header estándar que uses (`<string>`, `<atomic>`…); libc++

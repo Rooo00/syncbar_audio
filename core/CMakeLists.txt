@@ -33,6 +33,9 @@ set(CORE_SOURCES
     src/bridge_api.cpp
 )
 
+# Ruteo de grupos (AudioRouter): nulo en todas las plataformas hasta el sub-paso 3b
+list(APPEND CORE_SOURCES src/router_null.cpp)
+
 # HAL por plataforma (AudioHal): CoreAudio en macOS; nulo en el resto hasta WASAPI
 if(APPLE)
     list(APPEND CORE_SOURCES src/hal_coreaudio.cpp)
@@ -44,6 +47,7 @@ set(CORE_HEADERS
     include/database_mgr.h
     include/audio_engine.h
     include/audio_hal.h
+    include/audio_router.h
     include/bridge_api.h
 )
 
@@ -133,8 +137,13 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_link_libraries(test_engine_hal PRIVATE syncbar_core)
     target_include_directories(test_engine_hal PRIVATE include tests)
 
+    # Ruteo de grupos con HAL y router simulados
+    add_executable(test_engine_routing tests/test_engine_routing.cpp)
+    target_link_libraries(test_engine_routing PRIVATE syncbar_core)
+    target_include_directories(test_engine_routing PRIVATE include tests)
+
     # Registro en CTest: `ctest --test-dir build --output-on-failure`
-    foreach(t test_database_mgr test_audio_logic test_audio_engine test_bridge_api test_engine_hal)
+    foreach(t test_database_mgr test_audio_logic test_audio_engine test_bridge_api test_engine_hal test_engine_routing)
         add_test(NAME ${t} COMMAND ${t})
         set_tests_properties(${t} PROPERTIES TIMEOUT 60)
     endforeach()

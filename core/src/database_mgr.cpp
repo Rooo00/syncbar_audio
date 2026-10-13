@@ -212,6 +212,15 @@ bool DatabaseManager::open(const std::string& dbPath) {
             ) >= 4;
         END;
 
+        -- Estado de la app (clave/valor). Hoy guarda la salida por defecto
+        -- previa mientras un grupo está activo como salida (ADR-07), para
+        -- restaurarla si la app se cerró de golpe.
+        CREATE TABLE IF NOT EXISTS app_state (
+            key     TEXT NOT NULL,
+            value   TEXT NOT NULL,
+            CONSTRAINT pk_app_state PRIMARY KEY (key)
+        );
+
         CREATE TRIGGER IF NOT EXISTS trg_update_group_active
         AFTER UPDATE OF is_active ON group_devices
         BEGIN
@@ -486,4 +495,33 @@ void DatabaseManager::flushPending() {
         impl_->writeDevice(pending.record);
     }
     impl_->pendingDevices.clear();
+}
+
+// ── Estado de la app (clave/valor) ────────────────────────────────────────────
+
+bool DatabaseManager::getAppState(const std::string& key, std::string& outValue) const {
+    Stmt stmt(impl_->db, "SELECT value FROM app_state WHERE key = ?;");
+    if (!stmt.ok()) return false;
+    sqlite3_bind_text(stmt.s, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt.s) != SQLITE_ROW) return false;
+    const unsigned char* text = sqlite3_column_text(stmt.s, 0);
+    outValue = text ? reinterpret_cast<const char*>(text) : "";
+    return true;
+}
+
+bool DatabaseManager::setAppState(const std::string& key, const std::string& value) {
+    Stmt stmt(impl_->db,
+        "INSERT INTO app_state (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value;");
+    if (!stmt.ok()) return false;
+    sqlite3_bind_text(stmt.s, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt.s, 2, value.c_str(), -1, SQLITE_TRANSIENT);
+    return sqlite3_step(stmt.s) == SQLITE_DONE;
+}
+
+bool DatabaseManager::deleteAppState(const std::string& key) {
+    Stmt stmt(impl_->db, "DELETE FROM app_state WHERE key = ?;");
+    if (!stmt.ok()) return false;
+    sqlite3_bind_text(stmt.s, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+    return sqlite3_step(stmt.s) == SQLITE_DONE;
 }

@@ -15,6 +15,19 @@
 // implementación traduce el UID a su identificador nativo.
 
 /**
+ * Tipo de conexión del dispositivo. Se usa para elegir el reloj maestro de un
+ * grupo (ADR-07): una salida cableada es más estable que una Bluetooth.
+ */
+enum class HalTransport {
+    Unknown,
+    BuiltIn,
+    USB,
+    HDMI,       // HDMI / DisplayPort
+    Bluetooth,
+    Other,
+};
+
+/**
  * Snapshot de un dispositivo de salida tal como lo reporta el sistema.
  */
 struct HalDevice {
@@ -24,6 +37,7 @@ struct HalDevice {
     bool        volume_valid       = false; // false = el sistema no reporta volumen
     bool        muted              = false;
     bool        has_volume_control = true;  // false = HDMI/DisplayPort, etc.
+    HalTransport transport         = HalTransport::Unknown;
 };
 
 /**

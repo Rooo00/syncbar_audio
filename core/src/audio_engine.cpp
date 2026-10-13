@@ -1,6 +1,7 @@
 #include "audio_engine.h"
 #include "audio_hal.h"
 #include "audio_logic.h"
+#include "audio_router.h"
 
 #include <functional>
 #include <memory>
@@ -9,6 +10,7 @@
 #include <vector>
 #include <mutex>
 #include <algorithm>
+#include <atomic>
 #include <stdexcept>
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,7 +27,7 @@ struct DeviceState {
     bool        is_muted    = false;
     bool        is_active   = true;
     bool        has_volume_control = true;  // false = el hardware no expone volumen
-
+    HalTransport transport  = HalTransport::Unknown;
 };
 
 struct MemberState {
@@ -64,6 +66,22 @@ struct AudioEngine::Impl {
 
     // Acceso al hardware (CoreAudio, WASAPI o un mock en tests)
     std::unique_ptr<AudioHal> hal;
+
+    // ── Ruteo de grupos (ADR-07) ──────────────────────────────────────────────
+    // routingMutex serializa las operaciones de ruteo. Orden de locks:
+    // routingMutex → stateMutex. Al router se le llama sin stateMutex, porque
+    // crear o destruir una salida dispara avisos de hardware en otro hilo.
+    std::unique_ptr<AudioRouter> router;
+    std::mutex                   routingMutex;
+    std::atomic<bool>            routingDirty{false};  // aviso llegado durante una operación
+    // Protegidos por routingMutex:
+    std::string              outputUid;       // salida creada por el router ("" = ninguna)
+    std::vector<std::string> outputMembers;   // miembros con los que se creó
+    std::string              previousOutput;  // salida del sistema a restaurar
+    // Protegido por stateMutex (lo leen getGroups/getOutputGroupId):
+    int32_t outputGroupId = 0;
+
+    static constexpr const char* kPreviousOutputKey = "previous_default_output";
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -106,6 +124,7 @@ struct AudioEngine::Impl {
         ds.has_volume_control = hw.has_volume_control;
         if (hw.volume_valid) ds.volume = hw.volume;
         ds.is_muted           = hw.muted;
+        ds.transport          = hw.transport;
     }
 
     /**
@@ -147,6 +166,7 @@ struct AudioEngine::Impl {
                 // Ya conectado: solo refrescar capacidades
                 it->second.native_name        = hw.name;
                 it->second.has_volume_control = hw.has_volume_control;
+                it->second.transport          = hw.transport;
             }
         }
 
@@ -188,6 +208,143 @@ struct AudioEngine::Impl {
         }
         if (notifyConnect)    for (auto& uid : connected)    notifyConnect(uid);
         if (notifyDisconnect) for (auto& uid : disconnected) notifyDisconnect(uid);
+
+        syncRouting();
+    }
+
+    // ── Ruteo ─────────────────────────────────────────────────────────────────
+
+    // Preferencia para el reloj maestro: cableado antes que Bluetooth (ADR-07)
+    static int clockRank(HalTransport t) {
+        switch (t) {
+            case HalTransport::BuiltIn:   return 0;
+            case HalTransport::USB:       return 1;
+            case HalTransport::HDMI:      return 2;
+            case HalTransport::Other:     return 3;
+            case HalTransport::Unknown:   return 3;
+            case HalTransport::Bluetooth: return 4;
+        }
+        return 3;
+    }
+
+    /**
+     * Arma la salida de un grupo con sus miembros conectados.
+     * Requiere stateMutex. Devuelve false si el grupo no existe.
+     */
+    bool buildOutputSpec(int32_t groupId, GroupOutputSpec& spec) {
+        auto* g = findGroup(groupId);
+        if (!g) return false;
+        spec.name = "SyncBar - " + g->name;
+        spec.member_uids.clear();
+        spec.clock_uid.clear();
+        int bestRank = 1000;
+        for (auto& m : g->members) {
+            auto* d = findDevice(m.device_uid);
+            if (!d || !d->is_active) continue;
+            spec.member_uids.push_back(d->uid);
+            int rank = clockRank(d->transport);
+            if (rank < bestRank) {
+                bestRank       = rank;
+                spec.clock_uid = d->uid;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Crea (o reemplaza) la salida del grupo y la pone como salida del
+     * sistema. Si algo falla, el estado anterior queda intacto.
+     * Requiere routingMutex; no stateMutex.
+     */
+    AudioEngine::Result applyOutputLocked(int32_t groupId, const GroupOutputSpec& spec) {
+        const bool fresh = outputUid.empty();
+        const std::string previous = fresh ? router->currentDefaultOutput() : previousOutput;
+
+        std::string created = router->createGroupOutput(spec);
+        if (created.empty()) return AudioEngine::Result::RoutingFailure;
+        if (!router->setDefaultOutput(created)) {
+            router->destroyGroupOutput(created);
+            return AudioEngine::Result::RoutingFailure;
+        }
+        if (!fresh) router->destroyGroupOutput(outputUid);
+
+        outputUid      = created;
+        outputMembers  = spec.member_uids;
+        previousOutput = previous;
+        if (db && fresh && !previous.empty()) db->setAppState(kPreviousOutputKey, previous);
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            outputGroupId = groupId;
+        }
+        return AudioEngine::Result::OK;
+    }
+
+    /**
+     * Restaura la salida previa (si sigue conectada) y destruye la del grupo.
+     * Requiere routingMutex; no stateMutex.
+     */
+    void teardownOutputLocked() {
+        if (outputUid.empty()) return;
+
+        if (!previousOutput.empty()) {
+            bool restorable;
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                auto* d = findDevice(previousOutput);
+                restorable = !d || d->is_active;  // desconocida: se intenta igual
+            }
+            if (restorable) router->setDefaultOutput(previousOutput);
+        }
+        router->destroyGroupOutput(outputUid);
+
+        outputUid.clear();
+        outputMembers.clear();
+        previousOutput.clear();
+        if (db) db->deleteAppState(kPreviousOutputKey);
+        std::lock_guard<std::mutex> lock(stateMutex);
+        outputGroupId = 0;
+    }
+
+    /**
+     * Ajusta la salida activa a los miembros conectados del grupo: la
+     * reconstruye si cambiaron y la desactiva si el grupo ya no existe o se
+     * quedó sin miembros. Requiere routingMutex; no stateMutex.
+     */
+    void syncRoutingLocked() {
+        do {
+            routingDirty = false;
+            if (outputUid.empty()) return;
+
+            int32_t groupId;
+            GroupOutputSpec spec;
+            bool exists;
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                groupId = outputGroupId;
+                exists  = buildOutputSpec(groupId, spec);
+            }
+            if (!exists || spec.member_uids.empty()) {
+                teardownOutputLocked();
+            } else if (spec.member_uids != outputMembers &&
+                       applyOutputLocked(groupId, spec) != AudioEngine::Result::OK) {
+                teardownOutputLocked();
+            }
+        } while (routingDirty);
+    }
+
+    /**
+     * Punto de entrada tras cambios de hardware o de membresía (sin locks).
+     * Si otro hilo está ruteando, se marca como pendiente: ese hilo vuelve a
+     * llamar a syncRouting() después de soltar routingMutex. Así no se bloquea
+     * si el aviso llega en su propio hilo, y ningún aviso se pierde.
+     */
+    void syncRouting() {
+        routingDirty = true;
+        while (routingDirty) {
+            std::unique_lock<std::mutex> lock(routingMutex, std::try_to_lock);
+            if (!lock.owns_lock()) return;
+            syncRoutingLocked();
+        }
     }
 };
 
@@ -197,8 +354,10 @@ struct AudioEngine::Impl {
 
 AudioEngine::AudioEngine() : AudioEngine(createPlatformAudioHal()) {}
 
-AudioEngine::AudioEngine(std::unique_ptr<AudioHal> hal) : impl_(new Impl()) {
-    impl_->hal = hal ? std::move(hal) : createPlatformAudioHal();
+AudioEngine::AudioEngine(std::unique_ptr<AudioHal> hal,
+                         std::unique_ptr<AudioRouter> router) : impl_(new Impl()) {
+    impl_->hal    = hal    ? std::move(hal)    : createPlatformAudioHal();
+    impl_->router = router ? std::move(router) : createPlatformAudioRouter();
 }
 
 AudioEngine::~AudioEngine() {
@@ -289,7 +448,21 @@ bool AudioEngine::init(DatabaseManager& db) {
         impl_->initialized = true;
     }
 
-    // 3. Observar altas/bajas de dispositivos
+    // 3. Si la app se cerró con un grupo activo como salida, restaurar la
+    //    salida previa (la salida del grupo desapareció con el proceso).
+    std::string pendingRestore;
+    if (db.getAppState(Impl::kPreviousOutputKey, pendingRestore)) {
+        bool restorable;
+        {
+            std::lock_guard<std::mutex> lock(impl_->stateMutex);
+            auto* d = impl_->findDevice(pendingRestore);
+            restorable = !pendingRestore.empty() && (!d || d->is_active);
+        }
+        if (restorable) impl_->router->setDefaultOutput(pendingRestore);
+        db.deleteAppState(Impl::kPreviousOutputKey);
+    }
+
+    // 4. Observar altas/bajas de dispositivos
     Impl* impl = impl_;
     impl_->hal->startWatching([impl] { impl->handleHardwareChange(); });
     return true;
@@ -302,6 +475,10 @@ bool AudioEngine::init(DatabaseManager& db) {
 void AudioEngine::shutdown() {
     if (!impl_->initialized) return;
 
+    {
+        std::lock_guard<std::mutex> routing(impl_->routingMutex);
+        impl_->teardownOutputLocked();
+    }
     impl_->hal->stopWatching();
     if (impl_->db) impl_->db->flushPending();
     std::lock_guard<std::mutex> lock(impl_->stateMutex);
@@ -440,6 +617,7 @@ std::vector<GroupInfo> AudioEngine::getGroups() const {
         info.is_muted      = gs.is_muted;
         info.is_active     = gs.is_active;
         info.member_count  = static_cast<int32_t>(gs.members.size());
+        info.is_output     = (gs.id == impl_->outputGroupId);
         result.push_back(std::move(info));
     }
     return result;
@@ -464,7 +642,7 @@ AudioEngine::Result AudioEngine::addDeviceToGroup(int32_t groupId,
                                                    const std::string& uid) {
     if (!impl_->initialized) return Result::NotInitialized;
 
-    std::lock_guard<std::mutex> lock(impl_->stateMutex);
+    std::unique_lock<std::mutex> lock(impl_->stateMutex);
     auto* gs = impl_->findGroup(groupId);
     if (!gs) return Result::GroupNotFound;
     if (!impl_->findDevice(uid)) return Result::DeviceNotFound;
@@ -495,6 +673,8 @@ AudioEngine::Result AudioEngine::addDeviceToGroup(int32_t groupId,
     gs->members.push_back(std::move(ms));
     impl_->recalcGroupActive(*gs);
 
+    lock.unlock();
+    impl_->syncRouting();  // reconstruye o desactiva la salida del grupo si aplica
     return Result::OK;
 }
 
@@ -502,7 +682,7 @@ AudioEngine::Result AudioEngine::removeDeviceFromGroup(int32_t groupId,
                                                         const std::string& uid) {
     if (!impl_->initialized) return Result::NotInitialized;
 
-    std::lock_guard<std::mutex> lock(impl_->stateMutex);
+    std::unique_lock<std::mutex> lock(impl_->stateMutex);
     auto* gs = impl_->findGroup(groupId);
     if (!gs) return Result::GroupNotFound;
 
@@ -514,6 +694,8 @@ AudioEngine::Result AudioEngine::removeDeviceFromGroup(int32_t groupId,
     impl_->recalcGroupActive(*gs);
 
     if (impl_->db) impl_->db->removeMember(groupId, uid);
+    lock.unlock();
+    impl_->syncRouting();  // reconstruye o desactiva la salida del grupo si aplica
     return Result::OK;
 }
 
@@ -619,10 +801,52 @@ AudioEngine::Result AudioEngine::setGroupName(int32_t groupId,
 AudioEngine::Result AudioEngine::deleteGroup(int32_t groupId) {
     if (!impl_->initialized) return Result::NotInitialized;
 
-    std::lock_guard<std::mutex> lock(impl_->stateMutex);
+    std::unique_lock<std::mutex> lock(impl_->stateMutex);
     if (!impl_->findGroup(groupId)) return Result::GroupNotFound;
 
     impl_->groups.erase(groupId);
     if (impl_->db) impl_->db->deleteGroup(groupId); // CASCADE elimina membresías
+    lock.unlock();
+    impl_->syncRouting();  // reconstruye o desactiva la salida del grupo si aplica
     return Result::OK;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ruteo: grupo como salida del sistema (ADR-07)
+// ─────────────────────────────────────────────────────────────────────────────
+
+AudioEngine::Result AudioEngine::activateGroupOutput(int32_t groupId) {
+    if (!impl_->initialized) return Result::NotInitialized;
+
+    Result r;
+    {
+        std::lock_guard<std::mutex> routing(impl_->routingMutex);
+        GroupOutputSpec spec;
+        bool exists;
+        {
+            std::lock_guard<std::mutex> lock(impl_->stateMutex);
+            exists = impl_->buildOutputSpec(groupId, spec);
+        }
+        if (!exists)                       r = Result::GroupNotFound;
+        else if (spec.member_uids.empty()) r = Result::NoActiveMembers;
+        else                               r = impl_->applyOutputLocked(groupId, spec);
+    }
+    if (impl_->routingDirty) impl_->syncRouting();  // avisos llegados durante la operación
+    return r;
+}
+
+AudioEngine::Result AudioEngine::deactivateGroupOutput() {
+    if (!impl_->initialized) return Result::NotInitialized;
+
+    {
+        std::lock_guard<std::mutex> routing(impl_->routingMutex);
+        impl_->teardownOutputLocked();
+    }
+    if (impl_->routingDirty) impl_->syncRouting();
+    return Result::OK;
+}
+
+int32_t AudioEngine::getOutputGroupId() const {
+    std::lock_guard<std::mutex> lock(impl_->stateMutex);
+    return impl_->outputGroupId;
 }

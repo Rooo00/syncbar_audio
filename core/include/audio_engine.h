@@ -3,6 +3,7 @@
 #include "database_mgr.h"
 #include "audio_hal.h"
 #include "audio_logic.h"
+#include "audio_router.h"
 
 #include <string>
 #include <vector>
@@ -36,6 +37,7 @@ struct GroupInfo {
     bool        is_muted;    // Mute lógico (no propaga al hardware)
     bool        is_active;   // false si todos los miembros están inactivos
     int32_t     member_count;
+    bool        is_output;   // true = el grupo es la salida de audio del sistema
 };
 
 /**
@@ -66,7 +68,8 @@ public:
     AudioEngine();
 
     /** Usa el HAL indicado (p. ej. un mock en tests). */
-    explicit AudioEngine(std::unique_ptr<AudioHal> hal);
+    explicit AudioEngine(std::unique_ptr<AudioHal> hal,
+                         std::unique_ptr<AudioRouter> router = nullptr);
     ~AudioEngine();
 
     // No copiable
@@ -117,6 +120,8 @@ public:
         DbFailure               = 7,
         NotInitialized          = 8,
         HalFailure              = 9,
+        NoActiveMembers         = 10,
+        RoutingFailure          = 11,
     };
 
     Result setDeviceVolume(const std::string& uid, float volume);
@@ -134,6 +139,22 @@ public:
     Result setGroupMute(int32_t groupId, bool muted);
     Result setGroupName(int32_t groupId, const std::string& name);
     Result deleteGroup(int32_t groupId);
+
+    // ── Ruteo: grupo como salida del sistema (ADR-07) ─────────────────────────
+
+    /**
+     * Hace que todo el audio del sistema salga por los miembros conectados del
+     * grupo. Solo un grupo a la vez: activar otro reemplaza al anterior.
+     * Guarda la salida previa para restaurarla al desactivar (también tras un
+     * cierre abrupto, en el siguiente init()).
+     */
+    Result activateGroupOutput(int32_t groupId);
+
+    /** Restaura la salida previa. OK aunque no hubiera un grupo activo. */
+    Result deactivateGroupOutput();
+
+    /** Id del grupo activo como salida, o 0 si no hay. */
+    int32_t getOutputGroupId() const;
 
 private:
     struct Impl;  // pImpl
