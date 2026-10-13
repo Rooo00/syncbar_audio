@@ -177,6 +177,7 @@ struct DeviceRowView: View {
 
 // ── Previews ──────────────────────────────────────────────────────────────────
 
+#if DEBUG
 #Preview("Activo") {
     let vm = AudioViewModel.preview
     return DeviceRowView(device: vm.devices[0])
@@ -202,3 +203,4 @@ struct DeviceRowView: View {
         .frame(width: 320)
         .background(.regularMaterial)
 }
+#endif

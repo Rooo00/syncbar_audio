@@ -238,10 +238,10 @@ SB_Result sb_init(const char* db_path) {
 **Objetivo:** App funcional en la barra de menú, sin lógica de audio aún.
 
 ### Archivos a generar:
-- `macos/AudioSyncPro/App.swift` — `@main`, `MenuBarExtra`, `LSUIElement`
-- `macos/AudioSyncPro/Info.plist` — `LSUIElement = YES`, permisos de audio
-- `macos/AudioSyncPro/CoreBridge/AudioViewModel.swift` — `@Observable`, llama al bridge, dispatch al main thread
-- `macos/AudioSyncPro/CoreBridge/SyncBarBridge.h` — Bridging header que importa `bridge_api.h`
+- `macos/SyncBarAudio/SyncBarAudio/App.swift` — `@main`, `MenuBarExtra`, `LSUIElement`
+- `macos/SyncBarAudio/SyncBarAudio/Info.plist` — `LSUIElement = YES`, permisos de audio
+- `macos/SyncBarAudio/SyncBarAudio/CoreBridge/AudioViewModel.swift` — `@Observable`, llama al bridge, dispatch al main thread
+- `macos/SyncBarAudio/SyncBarAudio/CoreBridge/SyncBarBridge.h` — Bridging header que importa `bridge_api.h`
 
 ### Criterios de completitud:
 - [ ] La app aparece en la barra de menú con un ícono SF Symbol
@@ -257,9 +257,9 @@ SB_Result sb_init(const char* db_path) {
 **Objetivo:** Lista de dispositivos con sliders funcionales conectados al Core.
 
 ### Archivos a generar:
-- `macos/AudioSyncPro/Views/PopoverView.swift` — Contenedor principal
-- `macos/AudioSyncPro/Views/DeviceRowView.swift` — Fila: nombre, slider, botón mute
-- `macos/AudioSyncPro/Views/InlineLabelEditor.swift` — Edición inline de nombre
+- `macos/SyncBarAudio/SyncBarAudio/Views/PopoverView.swift` — Contenedor principal
+- `macos/SyncBarAudio/SyncBarAudio/Views/DeviceRowView.swift` — Fila: nombre, slider, botón mute
+- `macos/SyncBarAudio/SyncBarAudio/Views/InlineLabelEditor.swift` — Edición inline de nombre
 
 ### Criterios de completitud:
 - [ ] El pop-over muestra todos los dispositivos activos detectados por el Core
@@ -277,8 +277,8 @@ SB_Result sb_init(const char* db_path) {
 **Objetivo:** Creación y control de grupos virtuales desde la UI.
 
 ### Archivos a generar:
-- `macos/AudioSyncPro/Views/GroupRowView.swift` — Fila de grupo: nombre, slider maestro, mute lógico, lista de miembros
-- `macos/AudioSyncPro/Views/GroupEditorView.swift` — Sheet para crear/editar grupo y seleccionar miembros
+- `macos/SyncBarAudio/SyncBarAudio/Views/GroupRowView.swift` — Fila de grupo: nombre, slider maestro, mute lógico, lista de miembros
+- `macos/SyncBarAudio/SyncBarAudio/Views/GroupEditorView.swift` — Sheet para crear/editar grupo y seleccionar miembros
 
 ### Criterios de completitud:
 - [ ] El usuario puede crear un grupo nuevo con nombre personalizado

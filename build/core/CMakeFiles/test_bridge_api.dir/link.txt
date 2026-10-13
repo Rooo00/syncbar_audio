@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/test_bridge_api.dir/tests/test_bridge_api.cpp.o -o test_bridge_api  ../lib/libsyncbar_core.a libsqlite3.a -framework CoreFoundation -framework CoreAudio -framework AudioToolbox

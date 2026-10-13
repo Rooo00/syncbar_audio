@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Core (CMake + CTest)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Debug)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  macos-app:
+    name: macOS app (xcodebuild)
+    runs-on: macos-14
+    needs: core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build core (Release, universal)
+        # La app Release se compila para arm64 + x86_64; el core debe coincidir
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DUNIVERSAL=ON
+          cmake --build build --parallel
+
+      - name: Build app
+        run: |
+          xcodebuild -project macos/SyncBarAudio/SyncBarAudio.xcodeproj \
+            -target SyncBarAudio \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            build

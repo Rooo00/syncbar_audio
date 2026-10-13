@@ -373,6 +373,7 @@ struct GroupEditorSheet: View {
 
 // ── Previews ──────────────────────────────────────────────────────────────────
 
+#if DEBUG
 #Preview("Grupo activo") {
     let vm = AudioViewModel.preview
     return GroupRowView(group: vm.groups[0])
@@ -395,3 +396,4 @@ struct GroupEditorSheet: View {
     return GroupEditorSheet(group: vm.groups[0])
         .environmentObject(vm)
 }
+#endif

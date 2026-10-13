@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/cmake_install.cmake",
-		"/Users/usuario1/Library/CloudStorage/OneDrive-ITESO/Workspace/SyncBar Audio/code/sync-bar-audio/build/core/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

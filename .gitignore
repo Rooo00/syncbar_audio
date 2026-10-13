@@ -1,0 +1,28 @@
+# Build (CMake)
+build/
+cmake-build-*/
+CMakeUserPresets.json
+
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.moved-aside
+
+# Visual Studio / .NET (Iteración 2)
+.vs/
+bin/
+obj/
+*.user
+
+# Base de datos local de desarrollo
+*.db
+*.db-wal
+*.db-shm
+
+# macOS / editores
+.DS_Store
+.idea/
+.vscode/
+*.swp
