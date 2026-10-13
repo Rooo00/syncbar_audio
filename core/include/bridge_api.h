@@ -48,6 +48,8 @@ typedef enum SB_Result {
     SB_ERR_DB_FAILURE            = 7,
     SB_ERR_NOT_INITIALIZED       = 8,
     SB_ERR_HAL_FAILURE           = 9,  // El hardware rechazó el cambio
+    SB_ERR_NO_ACTIVE_MEMBERS     = 10, // El grupo no tiene miembros conectados
+    SB_ERR_ROUTING_FAILURE       = 11, // No se pudo crear/usar la salida del grupo
 } SB_Result;
 
 /* ── Structs de datos (snapshots de solo lectura para la UI) ───────────────── */
@@ -76,6 +78,7 @@ typedef struct SB_GroupInfo {
     bool    is_muted;           // Mute lógico (no propaga al hardware)
     bool    is_active;          // false si todos los miembros están inactivos
     int32_t member_count;       // Número de miembros (0–4)
+    bool    is_output;          // true = el grupo es la salida de audio del sistema
 } SB_GroupInfo;
 
 /**
@@ -241,6 +244,25 @@ SB_API SB_Result sb_set_group_name(int32_t group_id, const char* name);
  * @return SB_OK | SB_ERR_GROUP_NOT_FOUND
  */
 SB_API SB_Result sb_delete_group(int32_t group_id);
+
+/* ── Ruteo: grupo como salida del sistema (ADR-07) ────────────────────────── */
+
+/**
+ * Hace que todo el audio del sistema salga por los miembros conectados del
+ * grupo (macOS: Aggregate Device multi-salida). Solo un grupo a la vez:
+ * activar otro reemplaza al anterior. La salida previa se restaura al
+ * desactivar, al cerrar la app o, tras un cierre abrupto, en el siguiente
+ * sb_init().
+ * @return SB_OK | SB_ERR_GROUP_NOT_FOUND | SB_ERR_NO_ACTIVE_MEMBERS |
+ *         SB_ERR_ROUTING_FAILURE (el estado anterior no cambia)
+ */
+SB_API SB_Result sb_activate_group_output(int32_t group_id);
+
+/**
+ * Restaura la salida previa y destruye la del grupo.
+ * @return SB_OK (también si no había un grupo activo)
+ */
+SB_API SB_Result sb_deactivate_group_output(void);
 
 #ifdef __cplusplus
 }

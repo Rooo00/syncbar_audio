@@ -32,6 +32,8 @@ static SB_Result toSBResult(AudioEngine::Result r) {
         case AudioEngine::Result::DbFailure:           return SB_ERR_DB_FAILURE;
         case AudioEngine::Result::NotInitialized:      return SB_ERR_NOT_INITIALIZED;
         case AudioEngine::Result::HalFailure:          return SB_ERR_HAL_FAILURE;
+        case AudioEngine::Result::NoActiveMembers:     return SB_ERR_NO_ACTIVE_MEMBERS;
+        case AudioEngine::Result::RoutingFailure:      return SB_ERR_ROUTING_FAILURE;
         default:                                       return SB_ERR_NOT_INITIALIZED;
     }
 }
@@ -240,6 +242,7 @@ SB_Result sb_get_groups(SB_GroupInfo* out_groups,
         dst.is_muted      = src.is_muted;
         dst.is_active     = src.is_active;
         dst.member_count  = src.member_count;
+        dst.is_output     = src.is_output;
     }
     *out_count = n;
     return SB_OK;
@@ -304,4 +307,16 @@ SB_Result sb_set_group_name(int32_t group_id, const char* name) {
 SB_Result sb_delete_group(int32_t group_id) {
     if (!g_engine) return SB_ERR_NOT_INITIALIZED;
     return toSBResult(g_engine->deleteGroup(group_id));
+}
+
+// ── Ruteo ─────────────────────────────────────────────────────────────────────
+
+SB_Result sb_activate_group_output(int32_t group_id) {
+    if (!g_engine) return SB_ERR_NOT_INITIALIZED;
+    return toSBResult(g_engine->activateGroupOutput(group_id));
+}
+
+SB_Result sb_deactivate_group_output(void) {
+    if (!g_engine) return SB_ERR_NOT_INITIALIZED;
+    return toSBResult(g_engine->deactivateGroupOutput());
 }
