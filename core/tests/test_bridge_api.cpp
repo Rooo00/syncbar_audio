@@ -339,6 +339,28 @@ void test_group_output_via_bridge() {
     sb_shutdown();
 }
 
+void test_member_volume_via_bridge() {
+    printf("\n[T12] sb_set_member_volume (códigos de error)\n");
+
+    CHECK(sb_set_member_volume(1, "UID-X", 0.5f) == SB_ERR_NOT_INITIALIZED,
+          "sin init → NOT_INITIALIZED");
+
+    sb_init(TEST_DB);
+    int32_t gid = 0;
+    sb_create_group("Member Vol", &gid);
+
+    CHECK(sb_set_member_volume(gid, nullptr, 0.5f) == SB_ERR_DEVICE_NOT_FOUND,
+          "uid nulo → DEVICE_NOT_FOUND");
+    CHECK(sb_set_member_volume(gid, "UID-X", 1.5f) == SB_ERR_INVALID_VOLUME,
+          "volumen > 1 → INVALID_VOLUME");
+    CHECK(sb_set_member_volume(9999, "UID-X", 0.5f) == SB_ERR_GROUP_NOT_FOUND,
+          "grupo inexistente → GROUP_NOT_FOUND");
+    CHECK(sb_set_member_volume(gid, "UID-X", 0.5f) == SB_ERR_DEVICE_NOT_FOUND,
+          "no es miembro → DEVICE_NOT_FOUND");
+
+    sb_shutdown();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 int main() {
@@ -355,6 +377,7 @@ int main() {
     test_get_group_members();
     test_result_string_coverage();
     test_group_output_via_bridge();
+    test_member_volume_via_bridge();
 
     printf("\n══════════════════════════════════\n");
     printf("Results: %d passed, %d failed\n", passed, failed);

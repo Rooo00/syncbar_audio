@@ -130,8 +130,9 @@ public:
     /**
      * UPDATE de relative_volume de un miembro.
      */
+    /** immediate = false: debounce de 300 ms (arrastre del slider de miembro). */
     bool updateMemberVolume(int32_t groupId, const std::string& deviceUid,
-                            float relativeVolume);
+                            float relativeVolume, bool immediate = true);
 
     /**
      * UPDATE de is_active de un miembro (al conectar/desconectar dispositivo).

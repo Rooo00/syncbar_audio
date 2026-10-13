@@ -15,9 +15,11 @@
 #include "database_mgr.h"
 #include "mock_audio_hal.h"
 
+#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 // ── Utilidad ──────────────────────────────────────────────────────────────────
@@ -233,6 +235,111 @@ void test_shutdown_stops_watching() {
     CHECK(f.hw->onChanged == nullptr, "shutdown() la quita");
 }
 
+// ── Volumen relativo por miembro (US-03 / US-13) ─────────────────────────────
+
+static float memberRelative(AudioEngine& e, int32_t gid, const std::string& uid) {
+    for (auto& m : e.getGroupMembers(gid)) if (m.device_uid == uid) return m.relative_volume;
+    return -1.0f;
+}
+
+static float deviceVolume(AudioEngine& e, const std::string& uid) {
+    auto devices = e.getDevices();
+    auto* d = findDevice(devices, uid);
+    return d ? d->volume : -1.0f;
+}
+
+static bool near(float a, float b) { return a > b - 1e-4f && a < b + 1e-4f; }
+
+// Grupo "Sala" con UID-A y UID-B y el maestro al 80 %
+struct MemberFixture : HalFixture {
+    int32_t gid = 0;
+    MemberFixture() {
+        engine->init(db);
+        engine->createGroup("Sala", gid);
+        engine->addDeviceToGroup(gid, "UID-A");
+        engine->addDeviceToGroup(gid, "UID-B");
+        engine->setGroupVolume(gid, 0.8f);
+    }
+};
+
+void test_member_volume_applies() {
+    printf("\n[H8] setMemberVolume aplica maestro × relativo\n");
+    MemberFixture f;
+    CHECK(f.engine->setMemberVolume(f.gid, "UID-A", 0.5f) == AudioEngine::Result::OK,
+          "setMemberVolume → OK");
+    CHECK(near(memberRelative(*f.engine, f.gid, "UID-A"), 0.5f), "relativo de UID-A = 0.5");
+    CHECK(near(deviceVolume(*f.engine, "UID-A"), 0.4f), "UID-A al 40 % (0.8 × 0.5)");
+    CHECK(near(f.hw->lastVolume, 0.4f), "el HAL recibió 0.4");
+    CHECK(near(deviceVolume(*f.engine, "UID-B"), 0.8f), "UID-B no cambia");
+}
+
+void test_member_proportion_kept() {
+    printf("\n[H9] El maestro respeta la proporción (criterio de US-03)\n");
+    MemberFixture f;
+    f.engine->setMemberVolume(f.gid, "UID-A", 0.5f);
+    f.engine->setMemberVolume(f.gid, "UID-B", 1.0f);
+    f.engine->setGroupVolume(f.gid, 0.6f);
+    CHECK(near(deviceVolume(*f.engine, "UID-A"), 0.3f), "miembro al 50 % → 30 % con maestro al 60 %");
+    CHECK(near(deviceVolume(*f.engine, "UID-B"), 0.6f), "miembro al 100 % → 60 % con maestro al 60 %");
+}
+
+void test_member_volume_persisted() {
+    printf("\n[H10] El relativo se guarda con debounce\n");
+    MemberFixture f;
+    f.engine->setMemberVolume(f.gid, "UID-A", 0.25f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(450));
+    std::vector<MemberRecord> members;
+    f.db.loadMembers(members);
+    float saved = -1.0f;
+    for (auto& m : members) if (m.device_uid == "UID-A") saved = m.relative_volume;
+    CHECK(near(saved, 0.25f), "SQLite tiene 0.25 sin flushPending()");
+}
+
+void test_member_volume_edge_cases() {
+    printf("\n[H11] Rechazo del hardware, grupo muteado, miembro desconectado, errores\n");
+    MemberFixture f;
+
+    f.hw->rejectVolume.insert("UID-A");
+    CHECK(f.engine->setMemberVolume(f.gid, "UID-A", 0.5f) == AudioEngine::Result::HalFailure,
+          "hardware rechaza → HalFailure");
+    CHECK(near(memberRelative(*f.engine, f.gid, "UID-A"), 1.0f), "el relativo no cambia");
+    CHECK(near(deviceVolume(*f.engine, "UID-A"), 0.8f), "el volumen no cambia");
+    f.hw->rejectVolume.clear();
+
+    f.engine->setGroupMute(f.gid, true);
+    int calls = f.hw->setVolumeCalls;
+    CHECK(f.engine->setMemberVolume(f.gid, "UID-B", 0.5f) == AudioEngine::Result::OK,
+          "grupo muteado → OK");
+    CHECK(f.hw->setVolumeCalls == calls, "grupo muteado: no se toca el hardware (ADR-03)");
+    CHECK(near(memberRelative(*f.engine, f.gid, "UID-B"), 0.5f), "el relativo sí se guarda");
+    f.engine->setGroupMute(f.gid, false);
+
+    f.hw->disconnect("UID-B");
+    calls = f.hw->setVolumeCalls;
+    CHECK(f.engine->setMemberVolume(f.gid, "UID-B", 0.2f) == AudioEngine::Result::OK,
+          "miembro desconectado → OK");
+    CHECK(f.hw->setVolumeCalls == calls, "desconectado: no se llama al HAL");
+    CHECK(near(memberRelative(*f.engine, f.gid, "UID-B"), 0.2f), "el relativo se guarda");
+
+    CHECK(f.engine->setMemberVolume(f.gid, "UID-A", 1.5f) == AudioEngine::Result::InvalidVolume,
+          "1.5 → InvalidVolume");
+    CHECK(f.engine->setMemberVolume(999, "UID-A", 0.5f) == AudioEngine::Result::GroupNotFound,
+          "grupo inexistente → GroupNotFound");
+    CHECK(f.engine->setMemberVolume(f.gid, "UID-X", 0.5f) == AudioEngine::Result::DeviceNotFound,
+          "no es miembro → DeviceNotFound");
+}
+
+void test_device_slider_updates_relative() {
+    printf("\n[H12] El slider individual recalcula el relativo (decisión 1a)\n");
+    MemberFixture f;
+    f.engine->setDeviceVolume("UID-A", 0.2f);
+    CHECK(near(memberRelative(*f.engine, f.gid, "UID-A"), 0.25f),
+          "UID-A al 20 % con maestro al 80 % → relativo 0.25");
+    f.engine->setGroupVolume(f.gid, 0.4f);
+    CHECK(near(deviceVolume(*f.engine, "UID-A"), 0.1f), "maestro al 40 % → UID-A al 10 %");
+    CHECK(near(deviceVolume(*f.engine, "UID-B"), 0.4f), "UID-B sigue al maestro");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 int main() {
@@ -245,6 +352,11 @@ int main() {
     test_hotplug_events_and_groups();
     test_callbacks_run_outside_lock();
     test_shutdown_stops_watching();
+    test_member_volume_applies();
+    test_member_proportion_kept();
+    test_member_volume_persisted();
+    test_member_volume_edge_cases();
+    test_device_slider_updates_relative();
 
     printf("\n══════════════════════════════════\n");
     printf("Results: %d passed, %d failed\n", passed, failed);

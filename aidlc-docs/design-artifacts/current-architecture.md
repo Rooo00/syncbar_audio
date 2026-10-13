@@ -135,7 +135,7 @@ Patrón **pImpl** (`AudioEngine::Impl`, privado). El motor no contiene código d
 **Semántica de grupos:**
 - `setGroupVolume` calcula `master × relativo` y lo escribe en el hardware de cada miembro activo (si el grupo no está muteado).
 - `setGroupMute` es **lógico** (ADR-03): solo bloquea la propagación de volumen; no toca el mute del hardware.
-- Al añadir un miembro, su `relative_volume` se fija en 1.0. **No existe operación para cambiarlo**, así que en la práctica todos los miembros reciben el volumen maestro.
+- Al añadir un miembro, su `relative_volume` se fija en 1.0. Se cambia con `setMemberVolume(gid, uid, rel)` (aplica `master × rel` al hardware si el grupo no está muteado; `HalFailure` si el dispositivo lo rechaza) y se recalcula como `volumen / master` cuando el usuario mueve el slider individual del dispositivo. Ambos se persisten con el mismo debounce de 300 ms que el volumen de dispositivo.
 
 ### 4.3 DatabaseManager (`database_mgr.h/.cpp`)
 
@@ -213,7 +213,7 @@ CoreAudio (hilo del sistema) → `CoreAudioHal::listenerProc` → `AudioEngine::
 Hallazgos de la lectura del código, sin cambios aplicados:
 
 1. **No hay ruteo de audio.** Los grupos solo reparten volumen; no generan salida simultánea. Ver ADR-07.
-2. **Volumen relativo siempre en 1.0.** No hay API (`sb_set_member_volume` o similar) para ajustarlo, así que `distributeGroupVolume` siempre devuelve el volumen maestro.
+2. *(Resuelto en octubre 2026, Paso 4)* ~~Volumen relativo siempre en 1.0.~~ `AudioEngine::setMemberVolume` + `sb_set_member_volume` + slider por miembro en `GroupRowView`. Mover el slider individual de un dispositivo recalcula su relativo como `volumen / master` en cada grupo que lo contiene.
 3. *(Resuelto en octubre 2026)* ~~El debounce no tiene temporizador.~~ Ahora un hilo escribe los pendientes a los 300 ms.
 4. *(Resuelto en octubre 2026, solo volumen)* ~~Errores del HAL ignorados.~~ El volumen revisa el `OSStatus`, usa `VolumeScalar` como respaldo y la UI marca los dispositivos sin control de volumen. Desde el Paso 2, `setMute` también informa rechazos y ambos caminos tienen tests con `MockAudioHal`.
 5. *(Resuelto en octubre 2026)* ~~El listener de hotplug avisaba de todos los dispositivos y con el lock tomado.~~ Ahora solo avisa de cambios reales, fuera del lock, y una reconexión también reactiva las membresías de grupo.

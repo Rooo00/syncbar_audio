@@ -169,6 +169,15 @@ final class AudioViewModel: ObservableObject {
         if sb_set_device_volume(uid, volume) == SB_OK,
            let idx = devices.firstIndex(where: { $0.id == uid }) {
             devices[idx].volume = volume
+            refreshGroups()  // el core recalcula el relativo de los grupos que lo contienen
+        }
+    }
+
+    /// Volumen relativo de un miembro (US-03): el core aplica master × relativo al hardware.
+    func setMemberVolume(groupId: Int32, uid: String, relativeVolume: Float) {
+        if sb_set_member_volume(groupId, uid, relativeVolume) == SB_OK {
+            refreshGroups()
+            refreshDevices()
         }
     }
 

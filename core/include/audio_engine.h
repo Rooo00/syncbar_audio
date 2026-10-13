@@ -136,6 +136,15 @@ public:
     Result addDeviceToGroup(int32_t groupId, const std::string& uid);
     Result removeDeviceFromGroup(int32_t groupId, const std::string& uid);
     Result setGroupVolume(int32_t groupId, float masterVolume);
+
+    /**
+     * Cambia el balance de un miembro dentro del grupo (US-03): su volumen
+     * efectivo es maestro × relativo. Si el grupo no está muteado, se aplica
+     * al hardware de inmediato. Persistencia con debounce (RF-03).
+     * @return OK | GroupNotFound | DeviceNotFound (no es miembro) |
+     *         InvalidVolume | HalFailure (el hardware lo rechazó; no cambia nada)
+     */
+    Result setMemberVolume(int32_t groupId, const std::string& uid, float relativeVolume);
     Result setGroupMute(int32_t groupId, bool muted);
     Result setGroupName(int32_t groupId, const std::string& name);
     Result deleteGroup(int32_t groupId);
