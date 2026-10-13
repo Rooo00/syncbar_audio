@@ -41,9 +41,11 @@ Bluetooth, ver ADR-07); señálalo en vez de prometerlo.
 
 ### 3. Mapear el código existente (contexto completo de la función)
 Verifica contra el código real, no contra los documentos:
-- **Core:** `core/include/*.h`, `core/src/audio_engine.cpp` (HAL CoreAudio + estado + grupos +
-  hotplug), `database_mgr.cpp` (schema, triggers, debounce), `bridge_api.cpp` (C-API `sb_*`),
-  `audio_logic.h` (matemáticas de volumen), tests en `core/tests/`.
+- **Core:** `core/include/*.h`, `core/src/audio_engine.cpp` (estado + grupos + reconciliación
+  con el HAL), `audio_hal.h` + `hal_coreaudio.cpp` / `hal_null.cpp` (acceso al hardware),
+  `database_mgr.cpp` (schema, triggers, debounce), `bridge_api.cpp` (C-API `sb_*`),
+  `audio_logic.h` (matemáticas de volumen), tests en `core/tests/` (`mock_audio_hal.h` para
+  probar el motor sin hardware).
 - **App macOS:** `macos/SyncBarAudio/SyncBarAudio/CoreBridge/AudioViewModel.swift` (único
   ViewModel, llama `sb_*`) y `Views/` (`PopoverView` → `DeviceRowView` / `GroupRowView`).
 - Una función solo está "hecha" si recorre **toda la cadena**:
@@ -112,12 +114,15 @@ Un ítem solo se marca ✅ si cumple **todas** las capas que aplican:
   de grupo lógico (ADR-03), dispositivo desconectado queda inactivo (ADR-05).
 - Patrones de diseño vigentes (mantener consistencia):
   - Core: pImpl (`AudioEngine::Impl`, `DatabaseManager::Impl`), RAII para recursos SQLite,
-    HAL por plataforma con `#ifdef __APPLE__` / `_WIN32`, un solo `stateMutex` para el estado.
+    un solo `stateMutex` para el estado. El hardware solo se toca a través de `AudioHal`
+    (inyectado en `AudioEngine`): nada de código de plataforma en `audio_engine.cpp`; cada
+    plataforma tiene su `hal_*.cpp` y los tests usan `MockAudioHal`.
   - Bridge: C-API plana `extern "C"` con prefijo `sb_`, structs POD con buffers fijos,
     errores como `SB_Result` (nunca excepciones a través de la frontera C).
   - App: un `ObservableObject` (`AudioViewModel`) inyectado como `environmentObject`;
     los callbacks de CoreAudio llegan en otro hilo → `DispatchQueue.main.async`.
-  - Planeado (ADR-07): interfaz `AudioRouter` separada del estado, con mock para tests.
+  - Planeado (ADR-07): interfaz `AudioRouter` separada del estado, con mock para tests
+    (mismo patrón que `AudioHal`).
 - Trampas conocidas:
   - El core compila con `-Wall -Wextra -Wpedantic -Werror`: un warning rompe el build.
   - Incluye explícitamente cada header estándar que uses (`<string>`, `<atomic>`…); libc++
