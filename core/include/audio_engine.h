@@ -1,11 +1,13 @@
 #pragma once
 
 #include "database_mgr.h"
+#include "audio_hal.h"
 #include "audio_logic.h"
 
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
 #include <cstdint>
 
 // ── Structs de estado en runtime ──────────────────────────────────────────────
@@ -51,7 +53,7 @@ struct MemberInfo {
  * Núcleo del motor de audio.
  *
  * Responsabilidades:
- *  - Inicializar el HAL (CoreAudio en macOS, WASAPI en Windows)
+ *  - Usar el HAL inyectado (AudioHal: CoreAudio en macOS, mock en tests)
  *  - Mantener el estado en memoria de dispositivos y grupos
  *  - Aplicar cambios de volumen/mute al hardware vía HAL
  *  - Gestionar grupos virtuales y calcular proporciones de volumen
@@ -60,10 +62,11 @@ struct MemberInfo {
  */
 class AudioEngine {
 public:
-    // Impl es público para que el callback estático de CoreAudio pueda hacer el cast.
-    // No forma parte de la API pública — no usar desde fuera del Core.
-    struct Impl;
+    /** Usa el HAL de la plataforma (CoreAudio en macOS). */
     AudioEngine();
+
+    /** Usa el HAL indicado (p. ej. un mock en tests). */
+    explicit AudioEngine(std::unique_ptr<AudioHal> hal);
     ~AudioEngine();
 
     // No copiable
@@ -133,5 +136,6 @@ public:
     Result deleteGroup(int32_t groupId);
 
 private:
+    struct Impl;  // pImpl
     Impl* impl_;
 };
